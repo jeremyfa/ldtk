@@ -10,6 +10,13 @@ class IntGridTool extends tool.LayerTool<Int> {
 
 		if( !editor.curLayerDef.hasIntGridValue( getSelectedValue() ) )
 			selectValue( getDefaultValue() );
+			
+		// Show warning if this layer has a source
+		if( curLayerInstance.def.intGridSourceLayerDefUid!=null ) {
+			var srcLd = curLayerInstance.def.intGridSourceLd;
+			if( srcLd!=null )
+				N.warning('This IntGrid layer is auto-updated from "${srcLd.identifier}". Direct edits will be overwritten.');
+		}
 	}
 
 	override function selectValue(v:Int) {

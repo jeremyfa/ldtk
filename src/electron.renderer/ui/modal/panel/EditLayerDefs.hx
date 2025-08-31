@@ -352,6 +352,10 @@ class EditLayerDefs extends ui.modal.Panel {
 
 				if( li.def.autoSourceLayerDefUid==cur.uid )
 					li.remapToGridSize(cur.gridSize, newGrid);
+
+				// Update dependent IntGrid layers
+				if( li.def.intGridSourceLayerDefUid==cur.uid )
+					li.updateFromSourceIntGrid();
 			}
 		}
 		i.onChange = ()->{
@@ -556,6 +560,60 @@ class EditLayerDefs extends ui.modal.Panel {
 		switch cur.type {
 
 			case IntGrid:
+				// IntGrid source layer
+				var jSelect = jForms.find("select[name=intGridSourceLayer]");
+				jSelect.empty();
+				jSelect.append('<option value="-1">-- No source layer --</option>');
+
+				for(ld in project.defs.layers) {
+					if( ld.type==IntGrid && ld.uid!=cur.uid ) {
+						var opt = '<option value="${ld.uid}">${ld.identifier}</option>';
+						jSelect.append(opt);
+					}
+				}
+
+				jSelect.val( cur.intGridSourceLayerDefUid==null ? -1 : cur.intGridSourceLayerDefUid );
+
+				// Update help text based on selection
+				var updateSourceHelp = ()->{
+					var jHelp = jForms.find("dd.IntGrid .help");
+					if( cur.intGridSourceLayerDefUid!=null ) {
+						var srcLd = project.defs.getLayerDef(cur.intGridSourceLayerDefUid);
+						if( srcLd!=null ) {
+							var ratio = Std.int(srcLd.gridSize / cur.gridSize);
+							if( srcLd.gridSize % cur.gridSize == 0 && ratio > 0 ) {
+								jHelp.html('This layer will auto-update from <strong>${srcLd.identifier}</strong>. Each tile of grid size ${srcLd.gridSize} will map to ${ratio} x ${ratio} tiles (${ratio * ratio} tiles) in this layer.');
+								jHelp.removeClass("error");
+							} else {
+								jHelp.html('<span class="error">Warning: Source layer grid size (${srcLd.gridSize}px) is not evenly divisible by this layer grid size (${cur.gridSize}px)!</span>');
+								jHelp.addClass("error");
+							}
+						}
+					} else {
+						jHelp.html("");
+					}
+				};
+				updateSourceHelp();
+
+				// Change source layer
+				jSelect.change( function(ev) {
+					var v = Std.parseInt( jSelect.val() );
+					if( v<0 ) {
+						cur.intGridSourceLayerDefUid = null;
+					} else {
+						cur.intGridSourceLayerDefUid = v;
+						// Update all layer instances from source
+						for(w in project.worlds)
+						for(l in w.levels) {
+							var li = l.getLayerInstance(cur);
+							if( li!=null )
+								li.updateFromSourceIntGrid();
+						}
+					}
+					updateSourceHelp();
+					editor.ge.emit(LayerDefChanged(cur.uid, true));
+				});
+
 				// Guess icons tileset UID
 				if( intGridValuesIconsTdUid==null )
 					for(v in cur.getAllIntGridValues())
@@ -565,8 +623,8 @@ class EditLayerDefs extends ui.modal.Panel {
 						}
 
 				// Icons tileset
-				var jSelect = jForms.find(".valuesIconsTileset");
-				JsTools.createTilesetSelect(project, jSelect, intGridValuesIconsTdUid, true, "No icon", (tilesetDefUid)->{
+				var jIconsSelect = jForms.find(".valuesIconsTileset");
+				JsTools.createTilesetSelect(project, jIconsSelect, intGridValuesIconsTdUid, true, "No icon", (tilesetDefUid)->{
 					for(iv in cur.getAllIntGridValues())
 						iv.tile = null;
 

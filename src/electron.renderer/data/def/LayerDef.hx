@@ -50,6 +50,11 @@ class LayerDef {
 		inline function get_autoSourceLd() return type==AutoLayer && autoSourceLayerDefUid!=null ? _project.defs.getLayerDef(autoSourceLayerDefUid) : null;
 	public var autoTilesKilledByOtherLayerUid: Null<Int>;
 
+	// IntGrid subdivision from source layer
+	public var intGridSourceLayerDefUid : Null<Int>;
+	public var intGridSourceLd(get,never) : Null<LayerDef>;
+		inline function get_intGridSourceLd() return type==IntGrid && intGridSourceLayerDefUid!=null ? _project.defs.getLayerDef(intGridSourceLayerDefUid) : null;
+
 	// Tiles
 	public var tilePivotX(default,set) : Float = 0;
 	public var tilePivotY(default,set) : Float = 0;
@@ -153,6 +158,7 @@ class LayerDef {
 		}
 
 		o.autoSourceLayerDefUid = JsonTools.readNullableInt(json.autoSourceLayerDefUid);
+		o.intGridSourceLayerDefUid = JsonTools.readNullableInt( (cast json).intGridSourceLayerDefUid );
 
 		// Read auto-layer rules
 		if( json.autoRuleGroups!=null ) {
@@ -174,7 +180,7 @@ class LayerDef {
 	}
 
 	public function toJson() : ldtk.Json.LayerDefJson {
-		return {
+		var json : Dynamic = {
 			__type: Std.string(type),
 
 			identifier: identifier,
@@ -227,7 +233,13 @@ class LayerDef {
 			tilePivotY: tilePivotY,
 
 			biomeFieldUid: biomeFieldUid,
-		}
+		};
+		
+		// Add intGridSourceLayerDefUid if it's an IntGrid layer
+		if( type==IntGrid )
+			json.intGridSourceLayerDefUid = intGridSourceLayerDefUid;
+			
+		return json;
 	}
 
 	public inline function getScale() : Float {

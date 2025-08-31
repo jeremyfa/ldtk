@@ -213,6 +213,7 @@ Value | Type | Description
 -- | -- | --
 `__type` | String | Type of the layer (*IntGrid, Entities, Tiles or AutoLayer*)
 `autoSourceLayerDefUid`<br/><sup class="only">Only *Auto-layers*</sup><br/><sup class="uidRef">UID ref to [Layer definition](#ldtk-LayerDefJson)</sup> | Int&nbsp;*(can&nbsp;be&nbsp;`null`)* | 
+`intGridSourceLayerDefUid`<br/><sup class="only">Only *IntGrid layers*</sup><br/><sup class="uidRef">UID ref to [Layer definition](#ldtk-LayerDefJson)</sup> | Int&nbsp;*(can&nbsp;be&nbsp;`null`)* | UID of the IntGrid layer used as source for automatic value subdivision
 `displayOpacity` | Float | Opacity of the layer (0 to 1.0)
 `gridSize` | Int | Width and height of the grid in pixels
 `identifier` | String | User defined unique identifier

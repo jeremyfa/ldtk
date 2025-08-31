@@ -578,6 +578,11 @@ class Level {
 	function createLayerInstance(ld:data.def.LayerDef) : data.inst.LayerInstance {
 		var li = new data.inst.LayerInstance(_project, this.uid, ld.uid, _project.generateUniqueId_UUID());
 		layerInstances.push(li);
+		
+		// Initialize from source IntGrid if configured
+		if( ld.type==IntGrid && ld.intGridSourceLayerDefUid!=null )
+			li.updateFromSourceIntGrid();
+			
 		return li;
 	}
 

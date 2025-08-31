@@ -662,12 +662,17 @@ class LayerInstance {
 					decreaseAreaIntGridValueCount(old, cx,cy);
 					increaseAreaIntGridValueCount(v, cx, cy);
 					intGrid.set( coordId(cx,cy), v );
+					// Update dependent IntGrid layers
+					updateDependentIntGrids(cx, cy, v, useAsyncRender);
 				}
 				if( useAsyncRender )
 					asyncPaint(cx,cy, def.getIntGridValueColor(v));
 			}
-			else
+			else {
 				removeIntGrid(cx,cy, useAsyncRender);
+				// Update dependent IntGrid layers to remove value
+				updateDependentIntGrids(cx, cy, 0, useAsyncRender);
+			}
 		}
 	}
 
@@ -681,9 +686,104 @@ class LayerInstance {
 		if( isValid(cx,cy) && hasIntGrid(cx,cy) ) {
 			decreaseAreaIntGridValueCount( intGrid.get(coordId(cx,cy)), cx, cy );
 			intGrid.remove( coordId(cx,cy) );
+			// Update dependent IntGrid layers to remove value
+			updateDependentIntGrids(cx, cy, 0, useAsyncRender);
 		}
 		if( useAsyncRender )
 			asyncErase(cx,cy);
+	}
+
+	/** Update dependent IntGrid layers that use this layer as source **/
+	function updateDependentIntGrids(cx:Int, cy:Int, value:Int, useAsyncRender:Bool) {
+		// Find all layers that depend on this one
+		for(ld in _project.defs.layers) {
+			if( ld.type==IntGrid && ld.intGridSourceLayerDefUid==def.uid ) {
+				// Get the dependent layer instance
+				var dependentLi = level.getLayerInstance(ld);
+				if( dependentLi!=null ) {
+					// Calculate subdivision ratio
+					var ratio = Std.int(def.gridSize / ld.gridSize);
+					if( def.gridSize % ld.gridSize == 0 && ratio > 0 ) {
+						// Update all subdivided cells
+						var startCx = cx * ratio;
+						var startCy = cy * ratio;
+						for(subX in 0...ratio) {
+							for(subY in 0...ratio) {
+								var depCx = startCx + subX;
+								var depCy = startCy + subY;
+								if( dependentLi.isValid(depCx, depCy) ) {
+									// Set the value directly without triggering further updates
+									if( value > 0 ) {
+										var old = dependentLi.intGrid.get(dependentLi.coordId(depCx, depCy));
+										if( old != value ) {
+											dependentLi.decreaseAreaIntGridValueCount(old, depCx, depCy);
+											dependentLi.increaseAreaIntGridValueCount(value, depCx, depCy);
+											dependentLi.intGrid.set(dependentLi.coordId(depCx, depCy), value);
+										}
+										if( useAsyncRender )
+											dependentLi.asyncPaint(depCx, depCy, ld.getIntGridValueColor(value));
+									} else {
+										// Remove value
+										if( dependentLi.hasIntGrid(depCx, depCy) ) {
+											dependentLi.decreaseAreaIntGridValueCount(dependentLi.intGrid.get(dependentLi.coordId(depCx, depCy)), depCx, depCy);
+											dependentLi.intGrid.remove(dependentLi.coordId(depCx, depCy));
+										}
+										if( useAsyncRender )
+											dependentLi.asyncErase(depCx, depCy);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	/** Update this IntGrid layer from its source layer **/
+	public function updateFromSourceIntGrid() {
+		if( def.type!=IntGrid || def.intGridSourceLayerDefUid==null )
+			return;
+			
+		var sourceLd = def.intGridSourceLd;
+		if( sourceLd==null )
+			return;
+			
+		var sourceLi = level.getLayerInstance(sourceLd);
+		if( sourceLi==null )
+			return;
+			
+		// Calculate subdivision ratio
+		var ratio = Std.int(sourceLd.gridSize / def.gridSize);
+		if( sourceLd.gridSize % def.gridSize != 0 || ratio <= 0 )
+			return;
+			
+		// Clear current values
+		intGrid = new Map();
+		areaIntGridUseCount = new Map();
+		layerIntGridUseCount = new Map();
+		
+		// Copy subdivided values from source
+		for(srcCy in 0...sourceLi.cHei) {
+			for(srcCx in 0...sourceLi.cWid) {
+				if( sourceLi.hasIntGrid(srcCx, srcCy) ) {
+					var value = sourceLi.getIntGrid(srcCx, srcCy);
+					// Set all subdivided cells
+					var startCx = srcCx * ratio;
+					var startCy = srcCy * ratio;
+					for(subX in 0...ratio) {
+						for(subY in 0...ratio) {
+							var cx = startCx + subX;
+							var cy = startCy + subY;
+							if( isValid(cx, cy) && value > 0 ) {
+								intGrid.set(coordId(cx, cy), value);
+								increaseAreaIntGridValueCount(value, cx, cy);
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 
