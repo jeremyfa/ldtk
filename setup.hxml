@@ -25,4 +25,5 @@
 --cmd haxelib git deepnightLibs https://github.com/deepnight/deepnightLibs.git --always
 
 --next
---cmd haxelib git ldtk-haxe-api https://github.com/deepnight/ldtk-haxe-api.git --always
+#--cmd haxelib git ldtk-haxe-api https://github.com/deepnight/ldtk-haxe-api.git dev-1.5.4 --always
+--cmd haxelib dev ldtk-haxe-api git/ldtk-haxe-api --always
