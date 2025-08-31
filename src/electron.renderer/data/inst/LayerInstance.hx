@@ -695,6 +695,10 @@ class LayerInstance {
 
 	/** Update dependent IntGrid layers that use this layer as source **/
 	function updateDependentIntGrids(cx:Int, cy:Int, value:Int, useAsyncRender:Bool) {
+		// Safety checks
+		if( _project==null || _project.defs==null || level==null )
+			return;
+			
 		// Find all layers that depend on this one
 		for(ld in _project.defs.layers) {
 			if( ld.type==IntGrid && ld.intGridSourceLayerDefUid==def.uid ) {
@@ -742,7 +746,10 @@ class LayerInstance {
 
 	/** Update this IntGrid layer from its source layer **/
 	public function updateFromSourceIntGrid() {
-		if( def.type!=IntGrid || def.intGridSourceLayerDefUid==null )
+		if( def==null || def.type!=IntGrid || def.intGridSourceLayerDefUid==null )
+			return;
+			
+		if( level==null || _project==null || _project.defs==null )
 			return;
 			
 		var sourceLd = def.intGridSourceLd;

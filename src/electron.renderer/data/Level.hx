@@ -55,6 +55,11 @@ class Level {
 
 		for(ld in _project.defs.layers)
 			createLayerInstance(ld);
+			
+		// Initialize dependent IntGrid layers after all layers are created
+		for(li in layerInstances)
+			if( li.def.type==IntGrid && li.def.intGridSourceLayerDefUid!=null )
+				li.updateFromSourceIntGrid();
 	}
 
 	function set_identifier(id:String) {
@@ -579,10 +584,8 @@ class Level {
 		var li = new data.inst.LayerInstance(_project, this.uid, ld.uid, _project.generateUniqueId_UUID());
 		layerInstances.push(li);
 		
-		// Initialize from source IntGrid if configured
-		if( ld.type==IntGrid && ld.intGridSourceLayerDefUid!=null )
-			li.updateFromSourceIntGrid();
-			
+		// Don't initialize from source IntGrid here - it will be done after all layers are created
+		
 		return li;
 	}
 
@@ -645,6 +648,12 @@ class Level {
 						App.LOG.add("tidy", 'Added missing layer instance ${ld.identifier} in $this');
 						createLayerInstance(ld);
 					}
+					
+				// Initialize dependent IntGrid layers after all layers are recreated
+				for(li in layerInstances)
+					if( li.def.type==IntGrid && li.def.intGridSourceLayerDefUid!=null )
+						li.updateFromSourceIntGrid();
+						
 				invalidateJsonCache();
 				break;
 			}
