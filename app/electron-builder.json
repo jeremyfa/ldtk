@@ -45,8 +45,7 @@
 	},
 
 	"win": {
-		"target": "nsis",
-		"publish": ["github"]
+		"target": "nsis"
 	},
 
 	"mac": {}

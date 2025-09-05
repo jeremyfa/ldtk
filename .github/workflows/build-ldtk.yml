@@ -1,0 +1,132 @@
+name: Build LDtk
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - v**
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+
+  build-ldtk-mac:
+    strategy:
+      matrix:
+        os: [macos-14]
+        haxe: [4.3.7]
+      fail-fast: true
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # Checkout, install haxe and libs
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: krdlab/setup-haxe@master
+        with:
+          haxe-version: ${{ matrix.haxe }}
+
+      - run: haxe -version
+      - run: haxe setup.hxml
+      - run: haxelib list
+
+      # Node/NPM commands
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd app && npm install
+      - run: cd app && npm run pack-prepare
+      - run: cd app && CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack-macos
+
+      # Upload
+      - name: Upload Installer
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: mac-distribution
+          path: app/redist/LDtk**installer.dmg
+
+  build-ldtk-windows:
+    strategy:
+      matrix:
+        os: [windows-2022]
+        haxe: [4.3.7]
+      fail-fast: true
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # Checkout & install haxe
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: krdlab/setup-haxe@master
+        with:
+          haxe-version: ${{ matrix.haxe }}
+
+      - run: haxe -version
+      - run: haxe setup.hxml
+      - run: haxelib list
+
+      # Node/NPM commands
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd app && npm install
+      - run: cd app && npm run pack-win -- --publish never
+
+      # Upload
+      - name: Upload Installer
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: windows-distribution
+          path: app/redist/LDtk**.exe
+
+  build-ldtk-linux:
+    strategy:
+      matrix:
+        include:
+          - os: "ubuntu-22.04"
+            arch: "x86_64"
+            haxe: "4.3.7"
+          - os: "ubuntu-22.04"
+            arch: "arm64"
+            haxe: "4.3.7"
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # Checkout, install haxe and libs
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: krdlab/setup-haxe@master
+        with:
+          haxe-version: ${{ matrix.haxe }}
+
+      # Snapcraft required for ARM build
+      - name: Install Snapcraft
+        if: matrix.arch == 'arm64'
+        uses: samuelmeuli/action-snapcraft@v1
+
+      - run: haxe -version
+      - run: haxe setup.hxml
+      - run: haxelib list
+
+      # Node/NPM commands
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd app && npm install
+      - run: cd app && npm run pack-linux-${{ matrix.arch }}
+
+      # Upload
+      - uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: linux-${{ matrix.arch }}-distribution
+          path: app/redist/LDtk**installer.AppImage
