@@ -708,6 +708,9 @@ class LayerInstance {
 					// Calculate subdivision ratio
 					var ratio = Std.int(def.gridSize / ld.gridSize);
 					if( def.gridSize % ld.gridSize == 0 && ratio > 0 ) {
+						// Track if any changes were made
+						var anyChange = false;
+						
 						// Update all subdivided cells
 						var startCx = cx * ratio;
 						var startCy = cy * ratio;
@@ -723,6 +726,7 @@ class LayerInstance {
 											dependentLi.decreaseAreaIntGridValueCount(old, depCx, depCy);
 											dependentLi.increaseAreaIntGridValueCount(value, depCx, depCy);
 											dependentLi.intGrid.set(dependentLi.coordId(depCx, depCy), value);
+											anyChange = true;
 										}
 										if( useAsyncRender )
 											dependentLi.asyncPaint(depCx, depCy, ld.getIntGridValueColor(value));
@@ -731,9 +735,39 @@ class LayerInstance {
 										if( dependentLi.hasIntGrid(depCx, depCy) ) {
 											dependentLi.decreaseAreaIntGridValueCount(dependentLi.intGrid.get(dependentLi.coordId(depCx, depCy)), depCx, depCy);
 											dependentLi.intGrid.remove(dependentLi.coordId(depCx, depCy));
+											anyChange = true;
 										}
 										if( useAsyncRender )
 											dependentLi.asyncErase(depCx, depCy);
+									}
+								}
+							}
+						}
+						
+						// If this dependent IntGrid changed, update any further dependencies
+						if( anyChange ) {
+							// Update each changed cell in the dependent layer
+							for(subX in 0...ratio) {
+								for(subY in 0...ratio) {
+									var depCx = startCx + subX;
+									var depCy = startCy + subY;
+									if( dependentLi.isValid(depCx, depCy) ) {
+										// Recursively update any IntGrid layers that depend on this one
+										var depValue = dependentLi.getIntGrid(depCx, depCy);
+										dependentLi.updateDependentIntGrids(depCx, depCy, depValue, useAsyncRender);
+									}
+								}
+							}
+							
+							// Clear auto-tiles cache for any AutoLayers that use this IntGrid as source
+							for(autoLd in _project.defs.layers) {
+								if( autoLd.type==AutoLayer && autoLd.autoSourceLayerDefUid==ld.uid ) {
+									var autoLi = level.getLayerInstance(autoLd);
+									if( autoLi!=null ) {
+										autoLi.autoTilesCache = null;
+										// Trigger re-render of the AutoLayer
+										if( Editor.exists() )
+											Editor.ME.levelRender.invalidateLayer(autoLi);
 									}
 								}
 							}
