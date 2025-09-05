@@ -8,10 +8,90 @@ on:
   pull_request:
     branches:
       - '**'
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 jobs:
 
+  check-commits:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      commit_count: ${{ steps.check.outputs.commit_count }}
+      short_sha: ${{ steps.check.outputs.short_sha }}
+      release_name: ${{ steps.check.outputs.release_name }}
+      is_tag: ${{ steps.check.outputs.is_tag }}
+      last_nightly_sha: ${{ steps.check.outputs.last_nightly_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for recent commits and set outputs
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if this is a tag push
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "is_tag=true" >> $GITHUB_OUTPUT
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            echo "release_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            echo "Tag push detected: $TAG_NAME"
+          else
+            echo "is_tag=false" >> $GITHUB_OUTPUT
+            
+            # For scheduled runs, check if there are new commits since last nightly
+            if [[ "${{ github.event_name }}" == "schedule" ]]; then
+              # Get the latest nightly release
+              LATEST_NIGHTLY=$(gh release list --limit 100 | grep "nightly_" | head -1 | awk '{print $3}' || echo "")
+              
+              if [[ -n "$LATEST_NIGHTLY" ]]; then
+                # Get the commit SHA from the nightly tag
+                LAST_NIGHTLY_SHA=$(git rev-list -n 1 "$LATEST_NIGHTLY" 2>/dev/null || echo "")
+                echo "last_nightly_sha=$LAST_NIGHTLY_SHA" >> $GITHUB_OUTPUT
+                
+                if [[ -n "$LAST_NIGHTLY_SHA" ]]; then
+                  # Check for new commits since the last nightly
+                  COMMITS=$(git rev-list "$LAST_NIGHTLY_SHA"..HEAD --count)
+                  echo "Found $COMMITS new commits since last nightly"
+                else
+                  # If we can't find the SHA, build anyway
+                  COMMITS=1
+                  echo "Could not find last nightly SHA, will build"
+                fi
+              else
+                # No nightly releases exist, so build
+                COMMITS=1
+                echo "No previous nightly releases found, will build"
+              fi
+              
+              if [[ $COMMITS -gt 0 ]]; then
+                echo "should_build=true" >> $GITHUB_OUTPUT
+                echo "commit_count=$COMMITS" >> $GITHUB_OUTPUT
+                SHORT_SHA=$(git rev-parse --short HEAD)
+                echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+                DATE=$(date -u +%Y-%m-%d)
+                echo "release_name=nightly_${DATE}_${SHORT_SHA}" >> $GITHUB_OUTPUT
+                echo "Will create nightly build: nightly_${DATE}_${SHORT_SHA}"
+              else
+                echo "should_build=false" >> $GITHUB_OUTPUT
+                echo "No new commits since last nightly, skipping build"
+              fi
+            else
+              # For regular pushes and PRs, always build but don't create releases
+              echo "should_build=true" >> $GITHUB_OUTPUT
+              SHORT_SHA=$(git rev-parse --short HEAD)
+              echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+            fi
+          fi
+
   build-ldtk-mac:
+    needs: check-commits
+    if: needs.check-commits.outputs.should_build == 'true'
     strategy:
       matrix:
         os: [macos-14]
@@ -50,6 +130,8 @@ jobs:
           path: app/redist/LDtk**installer.dmg
 
   build-ldtk-windows:
+    needs: check-commits
+    if: needs.check-commits.outputs.should_build == 'true'
     strategy:
       matrix:
         os: [windows-2022]
@@ -87,6 +169,8 @@ jobs:
           path: app/redist/LDtk**.exe
 
   build-ldtk-linux:
+    needs: check-commits
+    if: needs.check-commits.outputs.should_build == 'true'
     strategy:
       matrix:
         include:
@@ -130,3 +214,118 @@ jobs:
           retention-days: 7
           name: linux-${{ matrix.arch }}-distribution
           path: app/redist/LDtk**installer.AppImage
+
+  create-release:
+    needs: [check-commits, build-ldtk-mac, build-ldtk-windows, build-ldtk-linux]
+    if: |
+      needs.check-commits.outputs.should_build == 'true' && 
+      (github.event_name == 'schedule' || needs.check-commits.outputs.is_tag == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts/
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          
+          # Move and rename files for clarity
+          if [ -d "artifacts/mac-distribution" ]; then
+            mv artifacts/mac-distribution/*.dmg "release-assets/LDtk-${{ needs.check-commits.outputs.release_name }}-macos.dmg" || true
+          fi
+          
+          if [ -d "artifacts/windows-distribution" ]; then
+            mv artifacts/windows-distribution/*.exe "release-assets/LDtk-${{ needs.check-commits.outputs.release_name }}-windows.exe" || true
+          fi
+          
+          if [ -d "artifacts/linux-x86_64-distribution" ]; then
+            mv artifacts/linux-x86_64-distribution/*.AppImage "release-assets/LDtk-${{ needs.check-commits.outputs.release_name }}-linux-x86_64.AppImage" || true
+          fi
+          
+          if [ -d "artifacts/linux-arm64-distribution" ]; then
+            mv artifacts/linux-arm64-distribution/*.AppImage "release-assets/LDtk-${{ needs.check-commits.outputs.release_name }}-linux-arm64.AppImage" || true
+          fi
+          
+          ls -la release-assets/
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          if [[ "${{ needs.check-commits.outputs.is_tag }}" == "true" ]]; then
+            # For tag releases, use a more formal release note
+            TAG_NAME="${{ needs.check-commits.outputs.release_name }}"
+            echo "RELEASE_TITLE=LDtk $TAG_NAME" >> $GITHUB_ENV
+            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+            
+            cat << EOF > release_notes.md
+          # LDtk $TAG_NAME
+          
+          ## Downloads
+          - **Windows**: LDtk-$TAG_NAME-windows.exe
+          - **macOS**: LDtk-$TAG_NAME-macos.dmg
+          - **Linux x86_64**: LDtk-$TAG_NAME-linux-x86_64.AppImage
+          - **Linux ARM64**: LDtk-$TAG_NAME-linux-arm64.AppImage
+          
+          ## Recent Changes
+          $(git log --pretty=format:"- %s (%h)" --since="7 days ago" | head -20)
+          
+          ---
+          *Built on $(date -u +"%Y-%m-%d %H:%M UTC")*
+          EOF
+          else
+            # For nightly releases
+            echo "RELEASE_TITLE=Nightly Build - $(date -u +%Y-%m-%d)" >> $GITHUB_ENV
+            echo "IS_PRERELEASE=true" >> $GITHUB_ENV
+            
+            LAST_SHA="${{ needs.check-commits.outputs.last_nightly_sha }}"
+            if [[ -n "$LAST_SHA" ]]; then
+              CHANGES=$(git log --pretty=format:"- %s (%an, %h)" "$LAST_SHA"..HEAD)
+            else
+              CHANGES=$(git log --pretty=format:"- %s (%an, %h)" --since="24 hours ago")
+            fi
+            
+            cat << EOF > release_notes.md
+          # LDtk Nightly Build
+          
+          ## Build Information
+          - **Date**: $(date -u +"%Y-%m-%d %H:%M UTC")
+          - **Commit**: ${{ github.sha }}
+          - **Short SHA**: ${{ needs.check-commits.outputs.short_sha }}
+          - **Branch**: ${{ github.ref_name }}
+          - **New commits**: ${{ needs.check-commits.outputs.commit_count }}
+          
+          ## Downloads
+          - **Windows**: LDtk-${{ needs.check-commits.outputs.release_name }}-windows.exe
+          - **macOS**: LDtk-${{ needs.check-commits.outputs.release_name }}-macos.dmg  
+          - **Linux x86_64**: LDtk-${{ needs.check-commits.outputs.release_name }}-linux-x86_64.AppImage
+          - **Linux ARM64**: LDtk-${{ needs.check-commits.outputs.release_name }}-linux-arm64.AppImage
+          
+          ## Changes since last nightly
+          $CHANGES
+          
+          ---
+          *This nightly build was automatically generated. For stable releases, please check the [releases page](https://github.com/${{ github.repository }}/releases).*
+          EOF
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.check-commits.outputs.release_name }}
+          name: ${{ env.RELEASE_TITLE }}
+          body_path: release_notes.md
+          prerelease: ${{ env.IS_PRERELEASE }}
+          files: release-assets/*
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
