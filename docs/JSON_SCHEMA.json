@@ -2503,6 +2503,13 @@
 			],
 			"additionalProperties": false,
 			"properties": {
+				"intGridSourceLayerDefUid": {
+					"description": "UID of the IntGrid layer used as source for automatic value subdivision",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
 				"guideOpacity": {
 					"description": "Opacity of the optional \"guide\" grid",
 					"type": [
@@ -2597,13 +2604,6 @@
 				},
 				"autoSourceLayerDefUid": {
 					"description": "",
-					"type": [
-						"integer",
-						"null"
-					]
-				},
-				"intGridSourceLayerDefUid": {
-					"description": "UID of the IntGrid layer used as source for automatic value subdivision",
 					"type": [
 						"integer",
 						"null"
