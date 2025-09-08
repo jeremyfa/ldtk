@@ -261,7 +261,10 @@ class LevelTimeline {
 	}
 
 
-	inline function isLayerStateStored(ld:data.def.LayerDef) { // TODO useless
+	inline function isLayerStateStored(ld:data.def.LayerDef) {
+		// Don't store generated IntGrid layers that have a source
+		if( ld.type==IntGrid && ld.intGridSourceLayerDefUid!=null )
+			return false;
 		return true;
 	}
 
@@ -407,6 +410,12 @@ class LevelTimeline {
 			}
 		}
 
+		// Update dependent IntGrid layers from their source
+		for(li in level.layerInstances) {
+			if( li.def.type==IntGrid && li.def.intGridSourceLayerDefUid!=null )
+				li.updateFromSourceIntGrid();
+		}
+		
 		if( restoreds.length>0 )
 			editor.ge.emitAtTheEndOfFrame( LayerInstancesRestoredFromHistory(restoreds) );
 
