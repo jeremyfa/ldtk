@@ -729,4 +729,31 @@ class LayerDef {
 					rg.requiredBiomeValues = [];
 				}
 	}
+	
+	public function syncIntGridValuesFrom(sourceLd:LayerDef) {
+		if( sourceLd==null || type!=IntGrid )
+			return;
+			
+		// Clear and copy intGridValues
+		intGridValues = [];
+		for( srcValue in sourceLd.getAllIntGridValues() ) {
+			intGridValues.push({
+				value: srcValue.value,
+				identifier: srcValue.identifier,
+				color: srcValue.color,
+				tile: srcValue.tile,
+				groupUid: srcValue.groupUid,
+			});
+		}
+		
+		// Clear and copy intGridValuesGroups
+		intGridValuesGroups = [];
+		for( srcGroup in sourceLd.intGridValuesGroups ) {
+			intGridValuesGroups.push({
+				uid: srcGroup.uid,
+				identifier: srcGroup.identifier,
+				color: srcGroup.color,
+			});
+		}
+	}
 }
