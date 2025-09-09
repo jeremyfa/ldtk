@@ -412,8 +412,20 @@ class LevelTimeline {
 
 		// Update dependent IntGrid layers from their source
 		for(li in level.layerInstances) {
-			if( li.def.type==IntGrid && li.def.intGridSourceLayerDefUid!=null )
+			if( li.def.type==IntGrid && li.def.intGridSourceLayerDefUid!=null ) {
 				li.updateFromSourceIntGrid();
+				// Add to restoreds list so they get invalidated properly
+				if( !restoreds.contains(li) )
+					restoreds.push(li);
+					
+				// Also invalidate any auto-layers that depend on this generated IntGrid
+				for(autoLi in level.layerInstances) {
+					if( autoLi.def.type==AutoLayer && autoLi.def.autoSourceLayerDefUid==li.layerDefUid ) {
+						if( !restoreds.contains(autoLi) )
+							restoreds.push(autoLi);
+					}
+				}
+			}
 		}
 		
 		if( restoreds.length>0 )
