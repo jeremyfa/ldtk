@@ -263,7 +263,7 @@ enum AppCommand {
 	@k("escape") @input C_Back;
 	@k("f12") @input C_AppSettings;
 	@k("ctrl z") C_Undo;
-	@k("ctrl y") C_Redo;
+	@k("ctrl y, ctrl shift z") C_Redo;
 	@k("ctrl a") C_SelectAll;
 	@k("tab") C_ZenMode;
 	@k("h") C_ShowHelp;
