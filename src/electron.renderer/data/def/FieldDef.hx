@@ -251,7 +251,9 @@ class FieldDef {
 			case F_Bool: "Bool";
 			case F_Color: "Color";
 			case F_Point: "Point";
-			case F_Enum(enumDefUid): "Enum."+_project.defs.getEnumDef(enumDefUid).identifier;
+			case F_Enum(enumDefUid): 
+				var ed = _project.defs.getEnumDef(enumDefUid);
+				ed==null ? "Enum.Unknown" : "Enum."+ed.identifier;
 			case F_Path: "File path";
 			case F_EntityRef: "Entity ref";
 			case F_Tile: "Tile";
@@ -270,7 +272,10 @@ class FieldDef {
 			case F_Point: "Point";
 			case F_Enum(enumDefUid):
 				var ed = _project.defs.getEnumDef(enumDefUid);
-				( ed.isExternal() ? "ExternEnum." : "LocalEnum." ) + ed.identifier;
+				if( ed==null )
+					"Unknown";
+				else
+					( ed.isExternal() ? "ExternEnum." : "LocalEnum." ) + ed.identifier;
 			case F_Path: "FilePath";
 			case F_EntityRef: "EntityRef";
 			case F_Tile: "Tile";
