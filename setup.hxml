@@ -1,29 +1,28 @@
---cmd haxelib install ase --always
+--cmd haxelib install ase 2.1.1 --always
 
 --next
---cmd haxelib install uuid --always
+--cmd haxelib install uuid 2.4.1 --always
 
 --next
---cmd haxelib install format --always
+--cmd haxelib install format 3.8.0 --always
 
 --next
---cmd haxelib git castle https://github.com/deepnight/castle --always
+--cmd haxelib dev castle git/castle --always
 
 --next
---cmd haxelib git heaps https://github.com/deepnight/heaps.git --always
+--cmd haxelib dev heaps git/heaps --always
 
 --next
---cmd haxelib git hxnodejs https://github.com/HaxeFoundation/hxnodejs.git --always
+--cmd haxelib dev hxnodejs git/hxnodejs --always
 
 --next
---cmd haxelib git electron https://github.com/deepnight/hxelectron.git --always
+--cmd haxelib dev electron git/hxelectron --always
 
 --next
---cmd haxelib git heaps-aseprite https://github.com/AustinEast/heaps-aseprite.git --always
+--cmd haxelib dev heaps-aseprite git/heaps-aseprite --always
 
 --next
---cmd haxelib git deepnightLibs https://github.com/deepnight/deepnightLibs.git --always
+--cmd haxelib dev deepnightLibs git/deepnightLibs --always
 
 --next
-#--cmd haxelib git ldtk-haxe-api https://github.com/deepnight/ldtk-haxe-api.git dev-1.5.4 --always
 --cmd haxelib dev ldtk-haxe-api git/ldtk-haxe-api --always

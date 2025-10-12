@@ -1,3 +1,21 @@
 [submodule "git/ldtk-haxe-api"]
 	path = git/ldtk-haxe-api
 	url = https://github.com/jeremyfa/ldtk-haxe-api.git
+[submodule "git/castle"]
+	path = git/castle
+	url = https://github.com/deepnight/castle
+[submodule "git/heaps"]
+	path = git/heaps
+	url = https://github.com/deepnight/heaps.git
+[submodule "git/hxnodejs"]
+	path = git/hxnodejs
+	url = https://github.com/HaxeFoundation/hxnodejs.git
+[submodule "git/hxelectron"]
+	path = git/hxelectron
+	url = https://github.com/deepnight/hxelectron.git
+[submodule "git/heaps-aseprite"]
+	path = git/heaps-aseprite
+	url = https://github.com/AustinEast/heaps-aseprite.git
+[submodule "git/deepnightLibs"]
+	path = git/deepnightLibs
+	url = https://github.com/deepnight/deepnightLibs.git
