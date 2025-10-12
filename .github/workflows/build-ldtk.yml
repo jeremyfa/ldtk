@@ -48,12 +48,24 @@ jobs:
             if [[ "${{ github.event_name }}" == "schedule" ]]; then
               # Get the latest nightly release
               LATEST_NIGHTLY=$(gh release list --limit 100 | grep "nightly_" | head -1 | awk '{print $3}' || echo "")
-              
+
               if [[ -n "$LATEST_NIGHTLY" ]]; then
-                # Get the commit SHA from the nightly tag
+                # Try to fetch the tag to see if it exists (tags are created with releases)
+                git fetch origin "refs/tags/$LATEST_NIGHTLY:refs/tags/$LATEST_NIGHTLY" 2>/dev/null || true
+
+                # Now try to get the commit SHA from the fetched tag
                 LAST_NIGHTLY_SHA=$(git rev-list -n 1 "$LATEST_NIGHTLY" 2>/dev/null || echo "")
+
+                # If we still can't find it, try to extract SHA from the release name
+                if [[ -z "$LAST_NIGHTLY_SHA" ]] && [[ "$LATEST_NIGHTLY" =~ nightly_[0-9]{4}-[0-9]{2}-[0-9]{2}_([a-f0-9]+) ]]; then
+                  SHORT_SHA="${BASH_REMATCH[1]}"
+                  # Try to resolve the short SHA to a full SHA
+                  LAST_NIGHTLY_SHA=$(git rev-parse "$SHORT_SHA" 2>/dev/null || echo "")
+                  echo "Extracted SHA from release name: $SHORT_SHA -> $LAST_NIGHTLY_SHA"
+                fi
+
                 echo "last_nightly_sha=$LAST_NIGHTLY_SHA" >> $GITHUB_OUTPUT
-                
+
                 if [[ -n "$LAST_NIGHTLY_SHA" ]]; then
                   # Check for new commits since the last nightly
                   COMMITS=$(git rev-list "$LAST_NIGHTLY_SHA"..HEAD --count)
