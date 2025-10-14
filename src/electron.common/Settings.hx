@@ -31,6 +31,7 @@ typedef AppSettings = {
 	var autoWorldModeSwitch : AutoWorldModeSwitch;
 	var fieldsRender : FieldsRender;
 	var nearbyTilesRenderingDist : Float;
+	var worldPreviewDetailLevel : WorldPreviewDetail;
 
 	var recentProjects : Array<String>;
 	var recentDirs : Array<String>;
@@ -67,6 +68,11 @@ enum AutoWorldModeSwitch {
 enum FieldsRender {
 	FR_Outline;
 	FR_Table;
+}
+
+enum WorldPreviewDetail {
+	WPD_AverageColors;  // Original: uses average tile colors (fast)
+	WPD_ActualTiles;    // New: renders actual tiles at reasonable zoom levels
 }
 
 
@@ -110,6 +116,7 @@ class Settings {
 			autoWorldModeSwitch: ZoomInAndOut,
 			fieldsRender: FR_Outline,
 			nearbyTilesRenderingDist: 1,
+			worldPreviewDetailLevel: WPD_AverageColors,
 			appUiScale: 1.0,
 			editorUiScale: 1.0,
 			mouseWheelSpeed: 1.0,

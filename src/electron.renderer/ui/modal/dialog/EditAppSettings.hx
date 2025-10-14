@@ -133,6 +133,25 @@ class EditAppSettings extends ui.modal.Dialog {
 			}
 		);
 
+		// World preview detail level
+		var jSelect = jForm.find("#worldPreviewDetailLevel");
+		jSelect.empty();
+		for(k in Settings.WorldPreviewDetail.getConstructors()) {
+			var nk = Settings.WorldPreviewDetail.createByName(k);
+			var jOpt = new J('<option value="$k"/>');
+			jSelect.append(jOpt);
+			jOpt.text(switch nk {
+				case WPD_AverageColors: L.t._("Average colors (default, fastest)");
+				case WPD_ActualTiles: L.t._("Actual tiles (better quality)");
+			});
+			if( settings.v.worldPreviewDetailLevel==nk )
+				jOpt.prop("selected",true);
+		}
+		jSelect.change( (_)->{
+			settings.v.worldPreviewDetailLevel = WorldPreviewDetail.createByName( jSelect.val() );
+			onSettingChanged();
+		});
+
 		// Load last project
 		var i = Input.linkToHtmlInput(settings.v.openLastProject, jForm.find("#openLastProject"));
 		i.onValueChange = (v)->{

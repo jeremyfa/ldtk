@@ -281,6 +281,33 @@ class WorldRender extends dn.Process {
 			case LayerInstanceSelected(curLi):
 				updateEdgeLayersOpacity();
 
+			case LayerInstanceEditedByTool(li), LayerInstanceChangedGlobally(li):
+				// Invalidate the level render and cache when a layer is edited
+				var level = li.level;
+				if( level != null ) {
+					invalidateLevelRender(level);
+					if( settings.v.nearbyTilesRenderingDist > 0 && level.touches(editor.curLevel) )
+						invalidateLevelRender(editor.curLevel);
+				}
+
+			case LayerInstancesRestoredFromHistory(lis):
+				// Invalidate all affected levels
+				var affectedLevels = new Map<Int,data.Level>();
+				for( li in lis )
+					if( li.level != null )
+						affectedLevels.set(li.level.uid, li.level);
+				for( level in affectedLevels )
+					invalidateLevelRender(level);
+
+			case AutoLayerRenderingChanged(lis):
+				// Invalidate all affected levels
+				var affectedLevels = new Map<Int,data.Level>();
+				for( li in lis )
+					if( li.level != null )
+						affectedLevels.set(li.level.uid, li.level);
+				for( level in affectedLevels )
+					invalidateLevelRender(level);
+
 			case TilesetDefPixelDataCacheRebuilt(td):
 				invalidateAllLevelRenders();
 
@@ -804,6 +831,103 @@ class WorldRender extends dn.Process {
 	}
 
 
+	function renderWorldLevelWithTiles(l:data.Level, wl:WorldLevelRender) {
+		// Render actual tiles at reasonable zoom levels for better quality
+		l.iterateLayerInstancesBottomToTop( li->{
+			if( li.def.type==Entities || !li.def.renderInWorldView )
+				return;
+
+			switch li.def.type {
+				case IntGrid:
+					if( !li.def.isAutoLayer() ) {
+						// Render IntGrid as colored rectangles
+						var g = new h2d.Graphics(wl.render);
+						g.x = li.pxTotalOffsetX;
+						g.y = li.pxTotalOffsetY;
+
+						for( cy in 0...li.cHei )
+						for( cx in 0...li.cWid ) {
+							if( li.hasAnyGridValue(cx,cy) ) {
+								var color = li.getIntGridColorAt(cx,cy);
+								g.beginFill(color, li.def.displayOpacity);
+								g.drawRect(
+									cx * li.def.gridSize,
+									cy * li.def.gridSize,
+									li.def.gridSize,
+									li.def.gridSize
+								);
+								g.endFill();
+							}
+						}
+					}
+					else {
+						// AutoLayer - render actual tiles
+						var td = li.getTilesetDef();
+						if( td==null || !td.isAtlasLoaded() || li.autoTilesCache==null )
+							return;
+
+						var tg = new h2d.TileGroup(td.getAtlasTile(), wl.render);
+						tg.x = li.pxTotalOffsetX;
+						tg.y = li.pxTotalOffsetY;
+						tg.alpha = li.def.displayOpacity;
+						tg.smooth = false;
+
+						li.def.iterateActiveRulesInDisplayOrder( li, (r)->{
+							if( li.autoTilesCache.exists( r.uid ) ) {
+								for( allTiles in li.autoTilesCache.get( r.uid ) )
+								for( tileInfos in allTiles ) {
+									LayerRender.renderAutoTileInfos(li, td, tileInfos, tg);
+								}
+							}
+						});
+					}
+
+				case Tiles:
+					// Render actual tiles
+					var td = li.getTilesetDef();
+					if( td==null || !td.isAtlasLoaded() )
+						return;
+
+					var tg = new h2d.TileGroup(td.getAtlasTile(), wl.render);
+					tg.x = li.pxTotalOffsetX;
+					tg.y = li.pxTotalOffsetY;
+					tg.alpha = li.def.displayOpacity;
+					tg.smooth = false;
+
+					for( cy in 0...li.cHei )
+					for( cx in 0...li.cWid ) {
+						for( tileInf in li.getGridTileStack(cx,cy) ) {
+							LayerRender.renderGridTile(li, td, tileInf, cx, cy, tg);
+						}
+					}
+
+				case AutoLayer:
+					// Render actual auto-layer tiles
+					var td = li.getTilesetDef();
+					if( td==null || !td.isAtlasLoaded() || li.autoTilesCache==null )
+						return;
+
+					var tg = new h2d.TileGroup(td.getAtlasTile(), wl.render);
+					tg.x = li.pxTotalOffsetX;
+					tg.y = li.pxTotalOffsetY;
+					tg.alpha = li.def.displayOpacity;
+					tg.smooth = false;
+
+					li.def.iterateActiveRulesInDisplayOrder( li, (r)->{
+						if( li.autoTilesCache.exists( r.uid ) ) {
+							for( allTiles in li.autoTilesCache.get( r.uid ) )
+							for( tileInfos in allTiles ) {
+								LayerRender.renderAutoTileInfos(li, td, tileInfos, tg);
+							}
+						}
+					});
+
+				case Entities:
+					// Skip entities
+			}
+		});
+	}
+
 	function renderWorldLevel(l:data.Level) {
 		if( l==null )
 			throw "Unknown level";
@@ -890,76 +1014,85 @@ class WorldRender extends dn.Process {
 			updateEdgeLayersOpacity();
 		}
 
-		// Default simplified renders
-		final alphaThreshold = 0.6;
-		l.iterateLayerInstancesTopToBottom( li->{
-			if( li.def.type==Entities || !li.def.renderInWorldView )
-				return;
+		// Use enhanced rendering based on user settings and zoom level
+		var useDetailedRendering = settings.v.worldPreviewDetailLevel == WPD_ActualTiles && camera.adjustedZoom >= 0.15;
 
-			if( li.def.isAutoLayer() && li.autoTilesCache==null ) {
-				App.LOG.error("missing autoTilesCache in "+li);
-				return;
-			}
-
-			var pixelGrid = new dn.heaps.PixelGrid(li.def.gridSize, li.cWid, li.cHei);
-			wl.render.addChildAt(pixelGrid,0);
-			pixelGrid.x = li.pxTotalOffsetX;
-			pixelGrid.y = li.pxTotalOffsetY;
-
-			// IntGrid/AutoLayer
-			if( li.def.type==IntGrid && !li.def.isAutoLayer() ) {
-				// Pure intGrid
-				for(cy in 0...li.cHei)
-				for(cx in 0...li.cWid) {
-					if( !isCoordDone(li,cx,cy) && li.hasAnyGridValue(cx,cy) ) {
-						markCoordAsDone(li, cx,cy);
-						pixelGrid.setPixel(cx,cy, li.getIntGridColorAt(cx,cy) );
-					}
-				}
-			}
-			else {
-				// Tiles base layer (autolayer or tiles)
-				var td = li.getTilesetDef();
-				if( td==null || !td.isAtlasLoaded() )
+		if( useDetailedRendering ) {
+			// Render actual tiles instead of average colors
+			renderWorldLevelWithTiles(l, wl);
+		}
+		else {
+			// Use PixelGrid with average colors (original behavior or when zoomed out too far)
+			final alphaThreshold = 0.6;
+			l.iterateLayerInstancesTopToBottom( li->{
+				if( li.def.type==Entities || !li.def.renderInWorldView )
 					return;
 
-				if( li.def.isAutoLayer() ) {
-					// Auto layer
-					var c : dn.Col = 0x0;
-					var cx = 0;
-					var cy = 0;
-					li.def.iterateActiveRulesInDisplayOrder( li, (r)->{
-						if( li.autoTilesCache.exists( r.uid ) ) {
-							for( allTiles in li.autoTilesCache.get( r.uid ).keyValueIterator() )
-							for( tileInfos in allTiles.value ) {
-								cx = Std.int( tileInfos.x / li.def.gridSize );
-								cy = Std.int( tileInfos.y / li.def.gridSize );
-								if( !isCoordDone(li,cx,cy) ) {
-									c = td.getAverageTileColor(tileInfos.tid);
-									if( c.af>=alphaThreshold ) {
-										markCoordAsDone(li,cx,cy);
-										pixelGrid.setPixel24(cx,cy, c);
+				if( li.def.isAutoLayer() && li.autoTilesCache==null ) {
+					App.LOG.error("missing autoTilesCache in "+li);
+					return;
+				}
+
+				var pixelGrid = new dn.heaps.PixelGrid(li.def.gridSize, li.cWid, li.cHei);
+				wl.render.addChildAt(pixelGrid,0);
+				pixelGrid.x = li.pxTotalOffsetX;
+				pixelGrid.y = li.pxTotalOffsetY;
+
+				// IntGrid/AutoLayer
+				if( li.def.type==IntGrid && !li.def.isAutoLayer() ) {
+					// Pure intGrid
+					for(cy in 0...li.cHei)
+					for(cx in 0...li.cWid) {
+						if( !isCoordDone(li,cx,cy) && li.hasAnyGridValue(cx,cy) ) {
+							markCoordAsDone(li, cx,cy);
+							pixelGrid.setPixel(cx,cy, li.getIntGridColorAt(cx,cy) );
+						}
+					}
+				}
+				else {
+					// Tiles base layer (autolayer or tiles)
+					var td = li.getTilesetDef();
+					if( td==null || !td.isAtlasLoaded() )
+						return;
+
+					if( li.def.isAutoLayer() ) {
+						// Auto layer
+						var c : dn.Col = 0x0;
+						var cx = 0;
+						var cy = 0;
+						li.def.iterateActiveRulesInDisplayOrder( li, (r)->{
+							if( li.autoTilesCache.exists( r.uid ) ) {
+								for( allTiles in li.autoTilesCache.get( r.uid ).keyValueIterator() )
+								for( tileInfos in allTiles.value ) {
+									cx = Std.int( tileInfos.x / li.def.gridSize );
+									cy = Std.int( tileInfos.y / li.def.gridSize );
+									if( !isCoordDone(li,cx,cy) ) {
+										c = td.getAverageTileColor(tileInfos.tid);
+										if( c.af>=alphaThreshold ) {
+											markCoordAsDone(li,cx,cy);
+											pixelGrid.setPixel24(cx,cy, c);
+										}
 									}
 								}
 							}
-						}
-					});
-				}
-				else if( li.def.type==Tiles ) {
-					// Classic tiles
-					var c : dn.Col = 0x0;
-					for(cy in 0...li.cHei)
-					for(cx in 0...li.cWid)
-						if( !isCoordDone(li,cx,cy) && li.hasAnyGridTile(cx,cy) ) {
-							c = td.getAverageTileColor( li.getTopMostGridTile(cx,cy).tileId );
-							if( c.af>=alphaThreshold ) {
-								markCoordAsDone(li, cx,cy);
-								pixelGrid.setPixel(cx,cy, c.withoutAlpha());
+						});
+					}
+					else if( li.def.type==Tiles ) {
+						// Classic tiles
+						var c : dn.Col = 0x0;
+						for(cy in 0...li.cHei)
+						for(cx in 0...li.cWid)
+							if( !isCoordDone(li,cx,cy) && li.hasAnyGridTile(cx,cy) ) {
+								c = td.getAverageTileColor( li.getTopMostGridTile(cx,cy).tileId );
+								if( c.af>=alphaThreshold ) {
+									markCoordAsDone(li, cx,cy);
+									pixelGrid.setPixel(cx,cy, c.withoutAlpha());
+								}
 							}
-						}
+					}
 				}
-			}
-		});
+			});
+		}
 
 		// Custom tile render override
 		var t = l.getWorldTileFromFields();
