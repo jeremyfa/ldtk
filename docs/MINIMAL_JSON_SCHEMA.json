@@ -1704,6 +1704,13 @@
 						"integer"
 					]
 				},
+				"seed": {
+					"description": "Random seed used to derive the per-layer random seeds of all the Auto-layers of this level (`LayerInstance.seed`).<br/>  Changing it in the editor regenerates every per-layer seed. This is `null` in levels created before LDtk 1.5.4: in that case, the per-layer seeds are independent.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
 				"fieldInstances": {
 					"description": "An array containing this level custom field values.",
 					"items": {

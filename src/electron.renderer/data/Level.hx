@@ -26,6 +26,9 @@ class Level {
 	public var bgPivotY: Float;
 	public var useAutoIdentifier: Bool;
 
+	/** Root random seed of this level. Per-layer seeds (`LayerInstance.seed`) are derived from it. Null in projects created before 1.5.4. **/
+	public var seed : Null<Int>;
+
 	@:allow(ui.LevelInstanceForm)
 	@:allow(ui.modal.panel.LevelInstancePanel)
 	var bgColor : Null<UInt>;
@@ -52,6 +55,7 @@ class Level {
 		this.identifier = "Level"+uid;
 		this.bgColor = null;
 		useAutoIdentifier = true;
+		seed = Std.random(9999999);
 
 		for(ld in _project.defs.layers)
 			createLayerInstance(ld);
@@ -175,6 +179,7 @@ class Level {
 			worldX: jsonWorldX,
 			worldY: jsonWorldY,
 			worldDepth: worldDepth,
+			seed: seed,
 			pxWid: pxWid,
 			pxHei: pxHei,
 			__bgColor: JsonTools.writeColor( getBgColor() ),
@@ -299,6 +304,7 @@ class Level {
 		l.worldX = JsonTools.readInt( json.worldX, 0 );
 		l.worldY = JsonTools.readInt( json.worldY, 0 );
 		l.worldDepth = JsonTools.readInt( json.worldDepth, 0 );
+		l.seed = JsonTools.readNullableInt( json.seed ); // null in older projects
 		l.identifier = JsonTools.readString(json.identifier, "Level"+l.uid);
 		l.bgColor = JsonTools.readColor(json.bgColor, true);
 		l.externalRelPath = json.externalRelPath;
@@ -580,8 +586,29 @@ class Level {
 	}
 
 
+	/** Derive a per-layer random seed from the level root seed (deterministic) **/
+	inline function deriveLayerSeed(layerDefUid:Int) : Int {
+		return M.iabs( dn.M.randSeedCoords(seed, layerDefUid, 0, 9999999) );
+	}
+
+	/** Re-derive all per-layer random seeds from the level root seed. Does nothing if the level has no root seed. **/
+	public function applySeedToLayers() {
+		if( seed==null )
+			return;
+		for(li in layerInstances)
+			li.seed = deriveLayerSeed(li.layerDefUid);
+	}
+
+	/** Pick a new random root seed (or use given one) and re-derive all per-layer seeds. NOTE: auto-layers should be recomputed afterwards. **/
+	public function regenerateSeed(?forcedSeed:Int) {
+		seed = forcedSeed!=null ? forcedSeed : Std.random(9999999);
+		applySeedToLayers();
+	}
+
 	function createLayerInstance(ld:data.def.LayerDef) : data.inst.LayerInstance {
 		var li = new data.inst.LayerInstance(_project, this.uid, ld.uid, _project.generateUniqueId_UUID());
+		if( seed!=null )
+			li.seed = deriveLayerSeed(ld.uid);
 		layerInstances.push(li);
 		
 		// Don't initialize from source IntGrid here - it will be done after all layers are created

@@ -37,6 +37,18 @@
 	</dd>
 
 	<dt>
+		<label for="seed">Random seed</label>
+		<info>
+			Root seed used by all the random features of the auto-layer rules in this level (random tiles, chances, offsets, flips, perlin...).
+			Changing it recomputes all the auto-layers of this level. The same seed always gives the same result.
+		</info>
+	</dt>
+	<dd class="seed">
+		<input type="text" id="seed" class="small"/>
+		<button class="regenerateSeed" title="Regenerate a new random seed for this level (all auto-layers will be recomputed)"> <span class="icon refresh"></span> </button>
+	</dd>
+
+	<dt>
 		<label for="worldX">World coords</label>
 		<div class="info">Level X and Y coordinates in pixels, in the world coordinate system.</div>
 	</dt>

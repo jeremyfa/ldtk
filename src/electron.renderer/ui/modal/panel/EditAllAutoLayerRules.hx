@@ -8,6 +8,10 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 	var li : data.inst.LayerInstance;
 	var lastRule : Null<data.def.AutoLayerRuleDef>;
 
+	// Multi-selection of rules
+	var selectedRuleUids : Array<Int> = [];
+	var selectionAnchorUid : Null<Int>;
+
 	public var ld(get,never) : data.def.LayerDef;
 		inline function get_ld() return li.def;
 
@@ -19,6 +23,18 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 
 		loadTemplate("editAllAutoLayerRules", { layer : li.def.identifier });
 		updateFullPanel();
+
+		// Clicking anywhere outside of a rule (in the panel, in the editor, etc.) clears the multi-selection
+		App.ME.jBody.off(".rulesSelection").on("mousedown.rulesSelection", (ev:js.jquery.Event)->{
+			if( selectedRuleUids.length==0 || App.ME.hasAnyToggleKeyDown() )
+				return;
+			var jTarget = new J(ev.target);
+			if( jTarget.closest("li.rule").length>0 )
+				return; // handled by the rule itself
+			if( jTarget.closest(".contextMenu, .window.dialog").length>0 )
+				return; // context menus & dialogs operate on the selection
+			clearSelection();
+		});
 	}
 
 	override function onGlobalEvent(e:GlobalEvent) {
@@ -95,6 +111,7 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 
 	override function onClose() {
 		super.onClose();
+		App.ME.jBody.off(".rulesSelection");
 		editor.levelRender.clearTemp();
 		editor.applyInvalidatedRulesInAllLevels();
 	}
@@ -118,6 +135,173 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 			else if( isAfter )
 				invalidateRule(or);
 		} );
+	}
+
+
+	/* RULES MULTI-SELECTION *****************************************************************/
+
+	inline function isSelected(r:AutoLayerRuleDef) {
+		return selectedRuleUids.contains(r.uid);
+	}
+
+	/** Rules managed by the Assistant (wizard) cannot be selected **/
+	function isSelectable(r:AutoLayerRuleDef) {
+		var rg = ld.getParentRuleGroup(r);
+		return rg!=null && !rg.usesWizard;
+	}
+
+	function getAllRulesInOrder() : Array<AutoLayerRuleDef> {
+		var all = [];
+		for(rg in ld.autoRuleGroups)
+		for(r in rg.rules)
+			all.push(r);
+		return all;
+	}
+
+	function getSelectedRulesInOrder() : Array<AutoLayerRuleDef> {
+		return getAllRulesInOrder().filter( r->isSelected(r) );
+	}
+
+	/** Remove deleted/unselectable rules from selection **/
+	function purgeSelection() {
+		selectedRuleUids = selectedRuleUids.filter( uid->{
+			var r = ld.getRule(uid);
+			return r!=null && isSelectable(r);
+		});
+		if( selectionAnchorUid!=null && ld.getRule(selectionAnchorUid)==null )
+			selectionAnchorUid = null;
+	}
+
+	function clearSelection() {
+		selectedRuleUids = [];
+		selectionAnchorUid = null;
+		refreshSelectionClasses();
+	}
+
+	function setSelection(rules:Array<AutoLayerRuleDef>) {
+		selectedRuleUids = rules.filter( r->isSelectable(r) ).map( r->r.uid );
+		selectionAnchorUid = rules.length>0 ? rules[rules.length-1].uid : null;
+		refreshSelectionClasses();
+	}
+
+	function toggleSelection(r:AutoLayerRuleDef) {
+		if( !isSelectable(r) )
+			return;
+		if( isSelected(r) )
+			selectedRuleUids.remove(r.uid);
+		else
+			selectedRuleUids.push(r.uid);
+		selectionAnchorUid = r.uid;
+		refreshSelectionClasses();
+	}
+
+	/** Select all rules between the anchor and given rule (in display order, across groups) **/
+	function selectRange(to:AutoLayerRuleDef) {
+		if( !isSelectable(to) )
+			return;
+
+		var all = getAllRulesInOrder();
+		var anchor = selectionAnchorUid==null ? null : ld.getRule(selectionAnchorUid);
+		var a = anchor==null ? -1 : all.indexOf(anchor);
+		var b = all.indexOf(to);
+		if( a<0 || b<0 ) {
+			toggleSelection(to);
+			return;
+		}
+
+		for( i in M.imin(a,b)...M.imax(a,b)+1 )
+			if( isSelectable(all[i]) && !isSelected(all[i]) )
+				selectedRuleUids.push(all[i].uid);
+		refreshSelectionClasses();
+	}
+
+	function refreshSelectionClasses() {
+		jContent.find("li.rule.selected").removeClass("selected");
+		for(uid in selectedRuleUids)
+			jContent.find('li.rule[ruleUid=$uid]').addClass("selected");
+		jContent.toggleClass("hasRuleSelection", selectedRuleUids.length>0);
+	}
+
+	/** Visual feedback when dragging a multi-selection: badge on the dragged rule, other selected rules collapsed **/
+	function showMultiDragFeedback(jDragged:js.jquery.JQuery) {
+		var uid = Std.parseInt( jDragged.attr("ruleUid") );
+		if( uid==null || selectedRuleUids.length<=1 || !selectedRuleUids.contains(uid) )
+			return;
+		hideMultiDragFeedback();
+		jDragged.append('<div class="multiDragBadge">${selectedRuleUids.length}</div>');
+		for(otherUid in selectedRuleUids)
+			if( otherUid!=uid )
+				jContent.find('li.rule[ruleUid=$otherUid]').addClass("multiDragging");
+	}
+
+	function hideMultiDragFeedback() {
+		jContent.find(".multiDragBadge").remove();
+		jContent.find("li.rule.multiDragging").removeClass("multiDragging");
+	}
+
+	/** Invalidate every active rule starting from the first position where the evaluation order changed **/
+	function getEvalOrderUids() : Array<Int> {
+		var uids = [];
+		ld.iterateActiveRulesInEvalOrder( li, r->uids.push(r.uid) );
+		return uids;
+	}
+
+	function invalidateRulesFromFirstDifference(beforeUids:Array<Int>) {
+		var afterUids = getEvalOrderUids();
+		var firstDiff = -1;
+		for(i in 0...M.imax(beforeUids.length, afterUids.length))
+			if( i>=beforeUids.length || i>=afterUids.length || beforeUids[i]!=afterUids[i] ) {
+				firstDiff = i;
+				break;
+			}
+		if( firstDiff<0 )
+			return;
+		for(i in firstDiff...afterUids.length)
+			invalidateRule( ld.getRule(afterUids[i]) );
+	}
+
+
+	/* BATCH RULE OPERATIONS *****************************************************************/
+
+	function copyRulesToClipboard(rules:Array<AutoLayerRuleDef>) {
+		App.ME.clipboard.copyData(CRules, { rules: rules.map( r->r.toJson(ld) ) });
+	}
+
+	function onRulesInserted(copies:Array<AutoLayerRuleDef>) {
+		if( copies==null || copies.length==0 )
+			return;
+		lastRule = copies[copies.length-1];
+		editor.ge.emit( LayerRuleAdded(copies[0]) ); // copies are contiguous: invalidating the first one (and the ones below) covers all of them
+		setSelection(copies);
+	}
+
+	function pasteRulesAfter(rg:AutoLayerRuleGroupDef, ?after:AutoLayerRuleDef) {
+		var copies = ld.pasteRules(project, rg, App.ME.clipboard, after);
+		onRulesInserted(copies);
+	}
+
+	function duplicateRules(rules:Array<AutoLayerRuleDef>) {
+		if( rules.length==0 )
+			return;
+		var last = rules[rules.length-1];
+		var rg = ld.getParentRuleGroup(last);
+		var copies = ld.duplicateRules(project, rg, rules);
+		onRulesInserted(copies);
+	}
+
+	function deleteRules(rules:Array<AutoLayerRuleDef>) {
+		if( rules.length==0 )
+			return;
+		new LastChance( L.t._("::n:: rules removed", { n:rules.length }), project );
+		App.LOG.general("Deleted "+rules.length+" rules");
+		for(r in rules) {
+			invalidateRuleAndOnesBelow(r);
+			var rg = ld.getParentRuleGroup(r);
+			if( rg!=null )
+				rg.rules.remove(r);
+		}
+		clearSelection();
+		editor.ge.emit( LayerRuleRemoved(rules[0], true) );
 	}
 
 
@@ -274,11 +458,35 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 
 		// Randomize
 		jContent.find("button.seed").click( function(ev) {
-			li.seed = Std.random(9999999);
-			editor.ge.emit(LayerRuleSeedChanged);
-			ld.iterateActiveRulesInEvalOrder( li, r->{
-				if( r.chance<1 || r.hasPerlin() )
-					invalidateRuleAndOnesBelow(r);
+			var m = new ContextMenu( new J(ev.target) );
+
+			m.addAction({
+				label: L.t._("This layer only"),
+				subText: L.t._("Change the random seed of this layer in the current level."),
+				cb: ()->{
+					li.seed = Std.random(9999999);
+					editor.ge.emit(LayerRuleSeedChanged);
+					// The seed affects chances, perlin, random tile picks, random offsets and random flips: invalidate everything
+					ld.iterateActiveRulesInEvalOrder( li, r->invalidateRule(r) );
+				},
+			});
+
+			m.addAction({
+				label: L.t._("Whole level"),
+				subText: L.t._("Regenerate the random seed of the current level: all its auto-layers will be recomputed."),
+				cb: ()->editor.regenerateLevelSeed(editor.curLevel),
+			});
+
+			m.addAction({
+				label: L.t._("All levels in this world"),
+				subText: L.t._("Regenerate the random seed of every level in this world. This cannot be undone."),
+				cb: ()->{
+					new ui.modal.dialog.Confirm(
+						L.t._("Regenerate the random seeds of ALL the levels in this world? All auto-layers will be recomputed. This cannot be undone."),
+						true,
+						()->editor.regenerateAllLevelSeeds(editor.curWorld)
+					);
+				},
 			});
 		});
 
@@ -337,6 +545,7 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 
 
 	function updateAllRuleGroups() {
+		purgeSelection();
 		var jRuleGroupList = jContent.find("ul.ruleGroups");
 
 		// Cleanup
@@ -675,9 +884,13 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 				label: L.t._("Duplicate and remap"),
 				subText: L.t._("Duplicate the group, and optionally remap IntGrid IDs and tiles"),
 				cb: ()->{
-					new ui.modal.dialog.RuleGroupRemap(ld,rg, (copy)->{
-						editor.ge.emit( LayerRuleGroupAdded(copy) );
-						for(r in copy.rules)
+					new ui.modal.dialog.RuleRemap(ld, rg.rules, RemapGroup(rg), (copies)->{
+						var copyGroup = copies.length>0 ? ld.getParentRuleGroup(copies[0]) : null;
+						if( copyGroup!=null )
+							editor.ge.emit( LayerRuleGroupAdded(copyGroup) );
+						else
+							updateAllRuleGroups();
+						for(r in copies)
 							invalidateRuleAndOnesBelow(r);
 					});
 				},
@@ -805,15 +1018,6 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 				// Create rule in DOM
 				var jRule = createRuleBlock(rg, r, ruleIdx++);
 				jGroupList.append(jRule);
-
-				// Last edited highlight
-				jRule.mousedown( function(ev) {
-					jContent.find("li.last").removeClass("last");
-					jRule.addClass("last");
-					lastRule = r;
-				});
-				if( r==lastRule )
-					jRule.addClass("last");
 			}
 		}
 
@@ -836,6 +1040,35 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 
 			var ruleUid = Std.parseInt( ev.item.getAttribute("ruleUid") );
 
+			// Multi-selection: move the whole selected block
+			var dragged = ld.getRule(ruleUid);
+			if( dragged!=null && selectedRuleUids.length>1 && isSelected(dragged) ) {
+				var toGroup = ld.autoRuleGroups[toGroupIdx];
+				if( toGroup==null || toGroup.usesWizard ) {
+					N.error( L.t._("Rules cannot be moved to a group managed by the Assistant.") );
+					updateAllRuleGroups();
+					return;
+				}
+
+				// Find the closest unselected rule above the drop position (in DOM), to use it as insertion anchor
+				var afterUid : Null<Int> = null;
+				var prev = ev.item.previousElementSibling;
+				while( prev!=null ) {
+					var prevUid = Std.parseInt( prev.getAttribute("ruleUid") );
+					if( prevUid!=null && !selectedRuleUids.contains(prevUid) ) {
+						afterUid = prevUid;
+						break;
+					}
+					prev = prev.previousElementSibling;
+				}
+
+				var before = getEvalOrderUids();
+				project.defs.sortLayerAutoRulesBatch(ld, selectedRuleUids.copy(), toGroupIdx, afterUid);
+				invalidateRulesFromFirstDifference(before);
+				editor.ge.emit(LayerRuleSorted);
+				return;
+			}
+
 			if( ev.newIndex>ev.oldIndex || toGroupIdx>fromGroupIdx)
 				invalidateRuleAndOnesBelow( ld.getRule(ruleUid) );
 
@@ -845,7 +1078,12 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 				invalidateRuleAndOnesBelow( ld.getRule(ruleUid) );
 
 			editor.ge.emit(LayerRuleSorted);
-		}, { disableAnim:true });
+		}, {
+			disableAnim: true,
+			onChoose: (ev)->showMultiDragFeedback( new J(ev.item) ), // before the native drag image is captured
+			onUnchoose: (ev)->hideMultiDragFeedback(),
+			onEnd: (ev)->hideMultiDragFeedback(),
+		});
 
 		// Turn the fake UL in collapsed groups into a sorting drop-target
 		if( rg.collapsed )
@@ -886,6 +1124,45 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 		jRule.addClass("rule");
 		if( rg.usesWizard )
 			jRule.addClass("wizard");
+		if( r==lastRule )
+			jRule.addClass("last");
+		if( isSelected(r) )
+			jRule.addClass("selected");
+
+		// While a multi-selection exists, a plain click on a rule that isn't part of it only clears the selection
+		// (capture phase: this runs before any child handler, so nothing else happens on this click)
+		var swallowNextClick = false;
+		jRule.get(0).addEventListener("mousedown", (ev:js.html.MouseEvent)->{
+			if( ev.button==0 && selectedRuleUids.length>0 && !isSelected(r) && !App.ME.hasAnyToggleKeyDown() ) {
+				clearSelection();
+				swallowNextClick = true;
+				ev.stopPropagation();
+				ev.preventDefault();
+			}
+		}, true);
+		jRule.get(0).addEventListener("click", (ev:js.html.MouseEvent)->{
+			if( swallowNextClick ) {
+				swallowNextClick = false;
+				ev.stopPropagation();
+				ev.preventDefault();
+			}
+		}, true);
+
+		// Last edited highlight & multi-selection
+		jRule.mousedown( function(ev:js.jquery.Event) {
+			jContent.find("li.last").removeClass("last");
+			jRule.addClass("last");
+			lastRule = r;
+
+			var jTarget = new J(ev.target);
+			var onInteractiveElement = jTarget.closest(".options, button, input, select").length>0;
+			if( ev.button==0 && App.ME.isShiftDown() && !onInteractiveElement )
+				selectRange(r);
+			else if( ev.button==0 && App.ME.isCtrlCmdDown() && !onInteractiveElement )
+				toggleSelection(r);
+			else if( !isSelected(r) && !App.ME.hasAnyToggleKeyDown() )
+				clearSelection();
+		});
 
 		// Insert rule before
 		jRule.find(".insert.before").click( function(_) {
@@ -907,6 +1184,12 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 			jPreview.append(pe.jRoot);
 		}
 		jPreview.click( function(ev) {
+			if( App.ME.isCtrlCmdDown() || App.ME.isShiftDown() )
+				return; // selection is handled in mousedown
+			if( selectedRuleUids.length>0 ) {
+				clearSelection(); // plain click while a selection exists: just clear it
+				return;
+			}
 			var ruleEd = new ui.modal.dialog.RuleEditor(ld, r);
 			ruleEd.onCloseCb = ()->updateRule(r);
 		});
@@ -955,7 +1238,7 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 
 		// Random offsets
 		var jFlag = jRule.find("a.randomOffset");
-		jFlag.addClass( r.hasAnyPositionOffset() ? "on" : "off" );
+		jFlag.addClass( r.hasAnyRandomVariation() ? "on" : "off" );
 		jFlag.mousedown( function(ev:js.jquery.Event) {
 			ev.preventDefault();
 			var w = new ui.modal.dialog.RuleRandomOffsets(jFlag, r);
@@ -1048,6 +1331,38 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 
 		// Rule context menu
 		ContextMenu.attachTo_new(jRule, (ctx:ContextMenu)->{
+			// Multi-selection menu
+			var sel = getSelectedRulesInOrder();
+			if( sel.length>1 && isSelected(r) ) {
+				var n = sel.length;
+				ctx.addElement( Ctx_Title( L.t._("::n:: selected rules", {n:n}) ) );
+				ctx.addElement( Ctx_CopyPaster({
+					elementName: '$n rules',
+					clipType: CRules,
+					copy: ()->copyRulesToClipboard(sel),
+					cut: ()->{
+						copyRulesToClipboard(sel);
+						deleteRules(sel);
+					},
+					paste: ()->pasteRulesAfter(rg, r),
+					duplicate: ()->duplicateRules(sel),
+					delete: ()->deleteRules(sel),
+				}) );
+				ctx.addElement( Ctx_Separator );
+				ctx.addActionElement({
+					label: L.t._("Duplicate and remap ::n:: rules", {n:n}),
+					subText: L.t._("Duplicate the selected rules, and optionally remap IntGrid IDs and tiles"),
+					cb: ()->{
+						new ui.modal.dialog.RuleRemap(ld, sel, RemapRules(rg, sel[sel.length-1]), (copies)->onRulesInserted(copies));
+					},
+				});
+				ctx.addActionElement({
+					label: L.t._("Clear selection"),
+					cb: ()->clearSelection(),
+				});
+				return;
+			}
+
 			ctx.addElement( Ctx_CopyPaster({
 				elementName: "rule",
 				clipType: CRule,
@@ -1071,6 +1386,21 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 				},
 				delete: ()->deleteRule(rg, r),
 			}) );
+
+			ctx.addActionElement({
+				label: L._PasteAfter("rules"),
+				iconId: "paste",
+				cb: ()->pasteRulesAfter(rg, r),
+				enable: ()->App.ME.clipboard.is(CRules),
+			});
+
+			ctx.addActionElement({
+				label: L.t._("Duplicate and remap"),
+				subText: L.t._("Duplicate this rule, and optionally remap IntGrid IDs and tiles"),
+				cb: ()->{
+					new ui.modal.dialog.RuleRemap(ld, [r], RemapRules(rg, r), (copies)->onRulesInserted(copies));
+				},
+			});
 		});
 
 		if( rg.usesWizard )
@@ -1100,6 +1430,7 @@ class EditAllAutoLayerRules extends ui.modal.Panel {
 	}
 
 	function deleteRule(rg:AutoLayerRuleGroupDef, r:data.def.AutoLayerRuleDef) {
+		new LastChance( L.t._("Rule removed"), project );
 		App.LOG.general("Deleted rule "+r);
 		invalidateRuleAndOnesBelow(r);
 		rg.rules.remove(r);

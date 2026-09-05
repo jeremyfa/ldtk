@@ -75,6 +75,10 @@ class LevelInstanceForm {
 				if( isUsingLevel(l) )
 					updateLevelPropsForm();
 
+			case LevelSeedChanged(l):
+				if( isUsingLevel(l) )
+					updateLevelPropsForm();
+
 			case LevelAdded(level):
 
 			case LevelSelected(l):
@@ -183,6 +187,16 @@ class LevelInstanceForm {
 		// World depth
 		var i = Input.linkToHtmlInput( level.worldDepth, jForm.find("#worldDepth"));
 		i.onChange = ()->onFieldChange();
+
+		// Random seed
+		var i = Input.linkToHtmlInput( level.seed, jForm.find("#seed") );
+		i.onChange = ()->{
+			if( level.seed!=null )
+				editor.applyLevelSeed(level);
+			else
+				onFieldChange();
+		}
+		jForm.find(".regenerateSeed").click( _->editor.regenerateLevelSeed(level) );
 
 		// Depth further
 		var jDepthButton = jForm.find(".worldDepthAbove");

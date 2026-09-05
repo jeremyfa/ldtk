@@ -1616,6 +1616,51 @@ class Editor extends Page {
 
 
 
+	/** Recompute all auto-layers of given level right now, optionally save an undo state, then refresh renders **/
+	function recomputeLevelAutoLayers(l:data.Level, saveHistory:Bool) {
+		for(li in l.layerInstances)
+			if( li.def.isAutoLayer() )
+				li.applyAllRules();
+
+		if( saveHistory && levelTimelines.exists(l.uid) )
+			levelTimelines.get(l.uid).saveFullLevelState();
+
+		ge.emit( LevelSeedChanged(l) );
+		worldRender.invalidateLevelRender(l);
+	}
+
+	/** Pick a new random root seed for given level, and recompute all its auto-layers **/
+	public function regenerateLevelSeed(l:data.Level) {
+		l.regenerateSeed();
+		recomputeLevelAutoLayers(l, true);
+	}
+
+	/** Re-derive per-layer seeds from the level root seed (eg. after the user manually typed a seed), and recompute all its auto-layers **/
+	public function applyLevelSeed(l:data.Level) {
+		l.applySeedToLayers();
+		recomputeLevelAutoLayers(l, true);
+	}
+
+	/** Pick a new random root seed for ALL levels of given world, then rebuild all auto-layers. Cannot be undone. **/
+	public function regenerateAllLevelSeeds(w:data.World) {
+		for(l in w.levels) {
+			l.regenerateSeed();
+			for(li in l.layerInstances)
+				if( li.def.isAutoLayer() )
+					li.autoTilesCache = null;
+			invalidateLevelCache(l);
+		}
+
+		checkAutoLayersCache( (_)->{
+			for(l in w.levels)
+				ge.emit( LevelSeedChanged(l) );
+			levelRender.invalidateAll();
+			worldRender.invalidateAll();
+			N.success( L.t._("Regenerated random seeds of all levels") );
+		});
+	}
+
+
 	public function applyInvalidatedRulesInAllLevels() {
 		var ops = [];
 		var affectedLayers : Map<data.inst.LayerInstance,data.Level> = new Map();
@@ -2152,6 +2197,7 @@ class Editor extends Page {
 					invalidateAllLevelsCache();
 
 			case LayerRuleSeedChanged: invalidateAllLevelsCache();
+			case LevelSeedChanged(l): invalidateLevelCache(l);
 			case LayerRuleSorted: invalidateAllLevelsCache();
 			case LayerRuleGroupAdded(rg): if( rg.rules.length>0 ) invalidateAllLevelsCache();
 			case LayerRuleGroupRemoved(rg): if( rg.rules.length>0 ) invalidateAllLevelsCache();
@@ -2338,6 +2384,7 @@ class Editor extends Page {
 			case LayerRuleRemoved(r,invalidates):
 			case LayerRuleSorted:
 			case LayerRuleSeedChanged:
+			case LevelSeedChanged(l):
 
 			case LayerRuleGroupChanged(rg):
 			case LayerRuleGroupChangedActiveState(rg):

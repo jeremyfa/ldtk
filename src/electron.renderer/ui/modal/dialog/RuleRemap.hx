@@ -1,49 +1,94 @@
 package ui.modal.dialog;
 
-class RuleGroupRemap extends ui.modal.Dialog {
+import data.def.AutoLayerRuleDef;
+import data.def.AutoLayerRuleGroupDef;
+
+enum RuleRemapMode {
+	/** Duplicate a whole group (asks for a new group name) **/
+	RemapGroup(rg:AutoLayerRuleGroupDef);
+
+	/** Duplicate a list of rules, and insert the copies in `rg` right after `after` **/
+	RemapRules(rg:AutoLayerRuleGroupDef, after:AutoLayerRuleDef);
+}
+
+/**
+	Duplicate some rules (or a whole group), and optionally remap their IntGrid values, IntGrid groups and tiles.
+**/
+class RuleRemap extends ui.modal.Dialog {
 	var ld : data.def.LayerDef;
 	var td : data.def.TilesetDef;
-	var srcGroup : data.def.AutoLayerRuleGroupDef;
-	var copyJson : ldtk.Json.AutoLayerRuleGroupJson;
+	var srcRules : Array<AutoLayerRuleDef>;
+	var mode : RuleRemapMode;
+	var onConfirm : (copies:Array<AutoLayerRuleDef>)->Void;
 
+	// IntGrid remaps
+	var idRemaps : Map<Int,Int> = new Map(); // IntGrid value => IntGrid value
+	var groupRemaps : Map<Int,Int> = new Map(); // Rule group value ( (groupUid+1)*1000 ) => rule group value
+
+	// Tiles remaps
 	var tileset : ui.Tileset;
-	var idRemaps : Map<Int,Int> = new Map();
 	var allTileIds : Array<Int> = [];
+	var individualTileMode = false;
 	var tileOffsetX = 0;
 	var tileOffsetY = 0;
+	var tileRemaps : Map<Int,Int> = new Map(); // tileId => tileId (individual mode only)
 
-	public function new(ld:data.def.LayerDef, rg:data.def.AutoLayerRuleGroupDef, onConfirm:data.def.AutoLayerRuleGroupDef->Void) {
+
+	public function new(ld:data.def.LayerDef, rules:Array<AutoLayerRuleDef>, mode:RuleRemapMode, onConfirm:(copies:Array<AutoLayerRuleDef>)->Void) {
 		super();
 
-		loadTemplate("ruleGroupRemap.html", { name:rg.name });
+		this.ld = ld;
+		this.srcRules = rules.copy();
+		this.mode = mode;
+		this.onConfirm = onConfirm;
+
+		var title = switch mode {
+			case RemapGroup(rg): 'Duplicate group: "${rg.name}"';
+			case RemapRules(_): srcRules.length==1 ? 'Duplicate 1 rule' : 'Duplicate ${srcRules.length} rules';
+		}
+		loadTemplate("ruleRemap.html", { title:title });
 		canBeClosedManually = false;
 
-		this.ld = ld;
-		this.srcGroup = rg;
-		this.copyJson = rg.toJson(ld);
-		copyJson.name += " copy";
-
-		// List used IntGrid IDs
-		for(r in srcGroup.rules)
+		// List used IntGrid IDs & groups
+		for(r in srcRules)
 		for(cx in 0...r.size)
 		for(cy in 0...r.size) {
 			var v = M.iabs( r.getPattern(cx,cy) );
-			if( v!=0 && v!=Const.AUTO_LAYER_ANYTHING )
+			if( v==0 || v==Const.AUTO_LAYER_ANYTHING )
+				continue;
+			if( v>999 )
+				groupRemaps.set(v,v);
+			else
 				idRemaps.set(v,v);
 		}
+		for(r in srcRules)
+			if( r.outOfBoundsValue!=null && r.outOfBoundsValue>0 && !idRemaps.exists(r.outOfBoundsValue) )
+				idRemaps.set(r.outOfBoundsValue, r.outOfBoundsValue);
 
 		// Create ID remappers
 		var jIdsList = jContent.find(".intGridIds");
-		for(v in idRemaps.keyValueIterator())
-			jIdsList.append( makeIdRemapper(v.key, v.value) );
+		var sortedIds = [ for(k in idRemaps.keys()) k ];
+		sortedIds.sort( (a,b)->Reflect.compare(a,b) );
+		if( sortedIds.length==0 )
+			jIdsList.append('<li class="empty">No IntGrid value used</li>');
+		for(v in sortedIds)
+			jIdsList.append( makeIdRemapper(v, idRemaps.get(v)) );
 
+		// Create group remappers
+		var jGroupsList = jContent.find(".intGridGroups");
+		var sortedGroups = [ for(k in groupRemaps.keys()) k ];
+		sortedGroups.sort( (a,b)->Reflect.compare(a,b) );
+		if( sortedGroups.length==0 )
+			jContent.find(".groupsSection").hide();
+		else
+			for(v in sortedGroups)
+				jGroupsList.append( makeGroupRemapper(v, groupRemaps.get(v)) );
 
-		// Tile picker
+		// List used tiles
 		td = project.defs.getTilesetDef(ld.tilesetDefUid);
-		tileset = new ui.Tileset(jContent.find(".tileset"), td, OneTile);
 		var doneTileIds = new Map();
 		allTileIds = [];
-		for(r in srcGroup.rules)
+		for(r in srcRules)
 		for(rectIds in r.tileRectsIds)
 		for(tid in rectIds)
 			if( !doneTileIds.exists(tid) ) {
@@ -51,77 +96,105 @@ class RuleGroupRemap extends ui.modal.Dialog {
 				allTileIds.push(tid);
 			}
 		allTileIds.sort( (a,b)->Reflect.compare(a,b) );
+
+		// Tile picker (offset mode)
+		tileset = new ui.Tileset(jContent.find(".tileset"), td, OneTile);
 		tileset.onSelectAnything = ()->{
+			if( allTileIds.length==0 )
+				return;
 			var tid = tileset.getSelectedTileIds()[0];
 			var fcx = td.getTileCx( allTileIds[0] );
 			var fcy = td.getTileCy( allTileIds[0] );
 			var tcx = td.getTileCx(tid);
 			var tcy = td.getTileCy(tid);
 			setTileOffset(tcx-fcx, tcy-fcy);
-			// setTileOffset( tileset.getSelectedTileIds()[0] - allTileIds[0] );
 		}
 		setTileOffset(0,0,true);
 		tileset.fitView();
 
+		// Tile remap mode
+		var jModes = jContent.find(".tileModes input[name=tileRemapMode]");
+		jModes.filter("[value=offset]").prop("checked", true);
+		jModes.change( (ev:js.jquery.Event)->{
+			individualTileMode = jModes.filter(":checked").val()=="individual";
+			updateTileMode();
+		});
+		updateTileMode();
+
+		if( allTileIds.length==0 )
+			jContent.find(".rightColumn").hide();
+
 		// Confirm & remap!
 		addButton(L.t._("Confirm"), ()->{
-			new InputDialog(
-				L.t._("Name this new group"),
-				copyJson.name,
-				(s:String)->return s.length==0 ? "Please enter a valid name" : null,
-				(s:String)->return s,
-				(s:String)->{
-					// Create rulegroup copy
-					var copyGroup = ld.pasteRuleGroup( project, data.Clipboard.createTemp(CRuleGroup, copyJson), rg );
-					copyGroup.name = s;
-
-					// Offset all tileIds
-					for(r in copyGroup.rules)
-					for(rectIds in r.tileRectsIds)
-					for(i in 0...rectIds.length)
-						rectIds[i] += tileOffsetX + tileOffsetY*td.cWid;
-
-					// Remap IntGrid IDs
-					for(r in copyGroup.rules) {
-						for(cx in 0...r.size)
-						for(cy in 0...r.size) {
-							var v = r.getPattern(cx,cy);
-							if( idRemaps.exists(v) )
-								r.setPattern(cx,cy, idRemaps.get(v));
-							else if( idRemaps.exists(-v) )
-								r.setPattern(cx,cy, -idRemaps.get(-v));
+			switch mode {
+				case RemapGroup(rg):
+					var copyJson = rg.toJson(ld);
+					copyJson.name += " copy";
+					new InputDialog(
+						L.t._("Name this new group"),
+						copyJson.name,
+						(s:String)->return s.length==0 ? "Please enter a valid name" : null,
+						(s:String)->return s,
+						(s:String)->{
+							var copyGroup = ld.pasteRuleGroup( project, data.Clipboard.createTemp(CRuleGroup, copyJson), rg );
+							copyGroup.name = s;
+							applyRemaps(copyGroup.rules);
+							onConfirm(copyGroup.rules);
+							close();
 						}
-						r.updateUsedValues();
-					}
+					);
 
-					// Out-of-bounds value
-					for(r in copyGroup.rules)
-						if( r.outOfBoundsValue!=null && idRemaps.exists(r.outOfBoundsValue) )
-							r.outOfBoundsValue = idRemaps.get(r.outOfBoundsValue);
-
-					onConfirm(copyGroup);
+				case RemapRules(rg, after):
+					var json = { rules: srcRules.map( r->r.toJson(ld) ) };
+					var copies = ld.pasteRules( project, rg, data.Clipboard.createTemp(CRules, json), after );
+					if( copies==null )
+						copies = [];
+					applyRemaps(copies);
+					onConfirm(copies);
 					close();
-				}
-			);
-
-
+			}
 		});
 		addCancel();
 	}
 
 
-	function getCenterOfGroup(tileIds:Array<Int>) {
-		var sumX = 0.;
-		var sumY = 0.;
-		for(tid in tileIds) {
-			sumX += td.getTileSourceX(tid);
-			sumY += td.getTileSourceY(tid);
-		}
-		return {
-			x: M.round( sumX / tileIds.length ),
-			y: M.round( sumY / tileIds.length ),
+	/** Apply all remaps (tiles, IntGrid values, IntGrid groups, out-of-bounds) to given rule copies **/
+	function applyRemaps(rules:Array<AutoLayerRuleDef>) {
+		for(r in rules) {
+			// Tiles
+			for(rectIds in r.tileRectsIds)
+			for(i in 0...rectIds.length)
+				rectIds[i] = remapTileId(rectIds[i]);
+
+			// Pattern values & groups
+			for(cx in 0...r.size)
+			for(cy in 0...r.size) {
+				var v = r.getPattern(cx,cy);
+				var av = M.iabs(v);
+				if( av==0 || av==Const.AUTO_LAYER_ANYTHING )
+					continue;
+				var nv = av>999
+					? ( groupRemaps.exists(av) ? groupRemaps.get(av) : av )
+					: ( idRemaps.exists(av) ? idRemaps.get(av) : av );
+				if( nv!=av )
+					r.setPattern(cx,cy, v<0 ? -nv : nv);
+			}
+			r.updateUsedValues();
+
+			// Out-of-bounds value
+			if( r.outOfBoundsValue!=null && idRemaps.exists(r.outOfBoundsValue) )
+				r.outOfBoundsValue = idRemaps.get(r.outOfBoundsValue);
 		}
 	}
+
+
+	inline function remapTileId(tid:Int) : Int {
+		if( individualTileMode )
+			return tileRemaps.exists(tid) ? tileRemaps.get(tid) : tid;
+		else
+			return tid + tileOffsetX + tileOffsetY*td.cWid;
+	}
+
 
 	function lock() {
 		jWrapper.find("button.confirm").prop("disabled",true);
@@ -131,9 +204,71 @@ class RuleGroupRemap extends ui.modal.Dialog {
 	}
 
 
+	function updateTileMode() {
+		if( individualTileMode ) {
+			jContent.find(".tileset").hide();
+			jContent.find(".tileRemaps").show();
+			updateTileRemapsList();
+			unlock();
+		}
+		else {
+			jContent.find(".tileRemaps").hide();
+			jContent.find(".tileset").show();
+			setTileOffset(tileOffsetX, tileOffsetY);
+		}
+	}
+
+
+	function updateTileRemapsList() {
+		var jList = jContent.find(".tileRemaps").empty();
+		if( td==null )
+			return;
+
+		for(tid in allTileIds) {
+			var jLi = new J('<li/>');
+			jList.append(jLi);
+
+			var jOld = td.createTileHtmlImageFromTileId(tid, 32);
+			jOld.addClass("oldTile");
+			jLi.append(jOld);
+
+			jLi.append('<div class="icon right"/>');
+
+			var newTid = tileRemaps.exists(tid) ? tileRemaps.get(tid) : tid;
+			var jNew = td.createTileHtmlImageFromTileId(newTid, 32);
+			jNew.addClass("newTile");
+			if( newTid==tid )
+				jNew.addClass("unchanged");
+			jNew.attr("title", newTid==tid ? "No change (click to pick a replacement tile)" : "Left click to change, right click to reset");
+			jNew.mousedown( (ev:js.jquery.Event)->{
+				switch ev.button {
+					case 0:
+						JsTools.openTilePickerModal(td.uid, OneTile, [newTid], false, (tids)->{
+							if( tids.length>0 ) {
+								if( tids[0]==tid )
+									tileRemaps.remove(tid);
+								else
+									tileRemaps.set(tid, tids[0]);
+							}
+							updateTileRemapsList();
+						});
+
+					case _:
+						tileRemaps.remove(tid);
+						updateTileRemapsList();
+				}
+			});
+			jLi.append(jNew);
+		}
+	}
+
+
 	function setTileOffset(ox:Int, oy:Int, scrollTo=false) {
 		tileOffsetX = ox;
 		tileOffsetY = oy;
+
+		if( td==null )
+			return;
 
 		var valid = true;
 		var offsetedIds = [];
@@ -154,16 +289,15 @@ class RuleGroupRemap extends ui.modal.Dialog {
 		tileset.clearCursor();
 		tileset.renderAtlas();
 
-		// Render original group
+		// Render original tiles
 		if( tileOffsetX!=0 || tileOffsetY!=0 )
 			tileset.renderHighlightedTiles(allTileIds, "#080");
 
-		// Render offseted group
+		// Render offseted tiles
 		tileset.renderHighlightedTiles(offsetedIds, valid?dn.Col.inlineHex("#0f0"):dn.Col.inlineHex("#f00"));
 
-		// Render arrow
+		// Render arrows
 		if( tileOffsetX!=0 || tileOffsetY!=0 ) {
-			var idx = 0;
 			var offX = Std.int(td.tileGridSize*0.5);
 			var offY = offX;
 			for(idx in 0...allTileIds.length) {
@@ -175,9 +309,6 @@ class RuleGroupRemap extends ui.modal.Dialog {
 					valid ? dn.Col.inlineHex("#fff") : dn.Col.inlineHex("#f00")
 				);
 			}
-			// var from = getCenterOfGroup(allTileIds);
-			// var to = getCenterOfGroup(offsetedIds);
-			// tileset.renderArrow(from.x, from.y, to.x, to.y, valid?dn.Col.inlineHex("#fff"):dn.Col.inlineHex("#f00"));
 		}
 
 		// Focus
@@ -191,7 +322,6 @@ class RuleGroupRemap extends ui.modal.Dialog {
 		if( className!=null )
 			jId.addClass(className);
 
-
 		if( nameOverride!=null )
 			jId.append(nameOverride);
 		else if( ld.getIntGridValueDisplayName(id)!=null )
@@ -199,7 +329,9 @@ class RuleGroupRemap extends ui.modal.Dialog {
 		else
 			jId.append('#$id');
 
-		jId.css({ backgroundColor: ld.getIntGridValueColor(id).toHex() });
+		var col = ld.getIntGridValueColor(id);
+		if( col!=null )
+			jId.css({ backgroundColor: col.toHex() });
 		return jId;
 	}
 
@@ -215,10 +347,59 @@ class RuleGroupRemap extends ui.modal.Dialog {
 		var jNew = makeIntGridId(newId, newId==oldId?"newId unchanged":"newId", newId==oldId?"No change":null);
 		jMapper.append(jNew);
 		jNew.click( _->{
-			new ui.modal.dialog.IntGridValuePicker(ld, newId, id->{
+			new ui.modal.dialog.IntGridValuePicker(jNew, ld, newId, id->{
 				idRemaps.set(oldId, id);
 				jMapper.replaceWith( makeIdRemapper(oldId, id) );
 			});
+		});
+
+		return jMapper;
+	}
+
+
+	function makeIntGridGroup(ruleValue:Int, ?className:String, ?nameOverride:String) {
+		var groupUid = ld.resolveIntGridGroupUidFromRuleValue(ruleValue);
+		var jGroup = new J('<div></div>');
+		if( className!=null )
+			jGroup.addClass(className);
+
+		if( nameOverride!=null )
+			jGroup.append(nameOverride);
+		else if( ld.hasIntGridGroup(groupUid) )
+			jGroup.append( ld.getIntGridGroupDisplayName(groupUid) );
+		else
+			jGroup.append('Unknown group #$groupUid');
+
+		var col = ld.hasIntGridGroup(groupUid) ? ld.getIntGridGroupColor(groupUid) : null;
+		if( col!=null )
+			jGroup.css({ backgroundColor: col.toHex() });
+		return jGroup;
+	}
+
+
+	function makeGroupRemapper(oldValue:Int, newValue:Int) : js.jquery.JQuery {
+		var jMapper = new J("<li/>");
+
+		var jOld = makeIntGridGroup(oldValue, "oldId");
+		jMapper.append(jOld);
+
+		jMapper.append('<div class="icon right"/>');
+
+		var jNew = makeIntGridGroup(newValue, newValue==oldValue?"newId unchanged":"newId", newValue==oldValue?"No change":null);
+		jMapper.append(jNew);
+		jNew.click( _->{
+			var ctx = new ContextMenu(jNew);
+			for( g in ld.getAllIntGridGroups() ) {
+				var v = (g.uid+1)*1000;
+				ctx.addAction({
+					label: L.untranslated( ld.getIntGridGroupDisplayName(g.uid) ),
+					selectionTick: v==newValue,
+					cb: ()->{
+						groupRemaps.set(oldValue, v);
+						jMapper.replaceWith( makeGroupRemapper(oldValue, v) );
+					},
+				});
+			}
 		});
 
 		return jMapper;

@@ -7,6 +7,10 @@ import js.node.Fs;
 typedef InternalSortableOptions = {
 	var ?onlyDraggables: Bool;
 	var ?disableAnim: Bool;
+	var ?onChoose: (event:SortableDragEvent)->Void;
+	var ?onUnchoose: (event:SortableDragEvent)->Void;
+	var ?onStart: (event:SortableDragEvent)->Void;
+	var ?onEnd: (event:SortableDragEvent)->Void;
 }
 
 class JsTools {
@@ -30,11 +34,23 @@ class JsTools {
 				App.ME.jBody.addClass("sorting");
 				jSortable.addClass("sorting");
 				new J(ev.item).addClass("dragging");
+				if( extraOptions.onStart!=null )
+					extraOptions.onStart(ev);
 			},
 			onEnd: function(ev) {
 				App.ME.jBody.removeClass("sorting");
 				jSortable.removeClass("sorting");
 				new J(ev.item).removeClass("dragging");
+				if( extraOptions.onEnd!=null )
+					extraOptions.onEnd(ev);
+			},
+			onChoose: function(ev) {
+				if( extraOptions.onChoose!=null )
+					extraOptions.onChoose(ev);
+			},
+			onUnchoose: function(ev) {
+				if( extraOptions.onUnchoose!=null )
+					extraOptions.onUnchoose(ev);
 			},
 			onSort: function(ev) {
 				if( ev.oldIndex!=ev.newIndex || ev.from!=ev.to )

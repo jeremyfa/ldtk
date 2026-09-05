@@ -8474,6 +8474,20 @@ body.sorting ul.collapsedSortTarget {
 			}
 		}
 
+		.seed {
+			align-items: stretch;
+			input {
+				flex: 1 1 0px;
+				text-align: center;
+			}
+			button.regenerateSeed {
+				padding: 2px 6px;
+				.icon {
+					height: 20px;
+				}
+			}
+		}
+
 		.depth {
 			align-items: stretch;
 			input {
@@ -9033,6 +9047,45 @@ body.sorting ul.collapsedSortTarget {
 							border-color: white;
 						}
 
+						&.selected {
+							border: 1px solid #ffcc00;
+							background-color: mix($bgDark, #ffcc00, 80%);
+							&.last {
+								border-color: #ffe680;
+							}
+						}
+
+						// Other selected rules while dragging a multi-selection
+						&.multiDragging {
+							max-height: 10px;
+							padding-top: 0;
+							padding-bottom: 0;
+							overflow: hidden;
+							opacity: 0.35;
+							border-style: dashed;
+							pointer-events: none;
+							&>* {
+								visibility: hidden;
+							}
+						}
+
+						.multiDragBadge {
+							position: absolute;
+							top: -6px;
+							right: -6px;
+							z-index: 2;
+							min-width: 12px;
+							padding: 1px 6px;
+							border-radius: 10px;
+							background-color: #ffcc00;
+							color: black;
+							font-size: 9pt;
+							font-weight: bold;
+							text-align: center;
+							box-shadow: 0 1px 3px black;
+							pointer-events: none;
+						}
+
 						.options {
 							display: grid;
 							grid-template-columns: repeat(7, 1fr);
@@ -9482,6 +9535,18 @@ $patternSize : 32px;
 			button.reset {
 				flex: 0;
 				padding: 2px;
+			}
+			dd.randomFlips {
+				gap: 12px;
+				label {
+					display: flex;
+					align-items: center;
+					gap: 4px;
+					cursor: pointer;
+					input[type=checkbox] {
+						margin: 0;
+					}
+				}
 			}
 		}
 	}
@@ -10457,7 +10522,7 @@ $patternSize : 32px;
 
 
 
-.window.ruleGroupRemap {
+.window.ruleRemap {
 	.wrapper .content {
 		display: grid;
 		grid-template-columns: 300px 600px;
@@ -10525,6 +10590,66 @@ $patternSize : 32px;
 			height: 60vh;
 			border: 1px solid white;
 			outline: 1px solid black;
+		}
+
+		.groupsSection {
+			margin-top: 12px;
+		}
+
+		ul.intGridIds li.empty {
+			display: block;
+			color: $almostWhite;
+			font-style: italic;
+		}
+
+		.tileModes {
+			display: flex;
+			flex-direction: column;
+			gap: 4px;
+			margin-bottom: 8px;
+			label {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				cursor: pointer;
+				input[type=radio] {
+					margin: 0;
+				}
+			}
+		}
+
+		ul.tileRemaps {
+			max-height: 60vh;
+			overflow-y: auto;
+			display: grid;
+			grid-template-columns: repeat(auto-fill, 110px);
+			gap: 4px;
+			align-content: start;
+
+			li {
+				display: grid;
+				grid-template-columns: min-content min-content min-content;
+				align-items: center;
+				gap: 4px;
+				padding: 4px;
+				background-color: $bgMed;
+				border-radius: 3px;
+
+				.oldTile {
+					opacity: 0.66;
+				}
+				.newTile {
+					border: 1px solid white;
+					cursor: pointer;
+					&:hover {
+						border-color: #fc0;
+					}
+					&.unchanged {
+						opacity: 0.5;
+						border-style: dashed;
+					}
+				}
+			}
 		}
 	}
 }

@@ -1,5 +1,17 @@
 <dl class="form">
 
+	<dt> <label>Random tile flip</label> </dt>
+	<dd class="randomFlips">
+		<label title="Randomly mirror the rendered tile(s) horizontally. This does NOT affect the pattern matching (see the X option in the rule row for that).">
+			<input id="randomFlipX" type="checkbox" tabindex="1"/>
+			Flip X
+		</label>
+		<label title="Randomly mirror the rendered tile(s) vertically. This does NOT affect the pattern matching (see the Y option in the rule row for that).">
+			<input id="randomFlipY" type="checkbox" tabindex="1"/>
+			Flip Y
+		</label>
+	</dd>
+
 
 	<dt> <label for="xOffset">Tile X offset</label> </dt>
 	<dd>
@@ -44,4 +56,4 @@
 
 </dl>
 
-<button class="red resetAll"> <span class="icon delete"></span> Reset all offsets </button>
+<button class="red resetAll"> <span class="icon delete"></span> Reset all offsets and flips </button>

@@ -294,6 +294,47 @@ class Definitions {
 	}
 
 
+	/**
+		Move multiple rules (given by UIDs, possibly from different groups) as a contiguous block into `toGroup`,
+		right after rule `afterRuleUid` (or at the beginning of the group if null). Relative order of moved rules is preserved.
+	**/
+	public function sortLayerAutoRulesBatch(ld:data.def.LayerDef, ruleUids:Array<Int>, toGroupIdx:Int, ?afterRuleUid:Null<Int>) : Array<data.def.AutoLayerRuleDef> {
+		if( toGroupIdx<0 || toGroupIdx>=ld.autoRuleGroups.length )
+			return [];
+
+		var toGroup = ld.autoRuleGroups[toGroupIdx];
+
+		// Collect moved rules in their current global order
+		var moved = [];
+		for(rg in ld.autoRuleGroups)
+		for(r in rg.rules)
+			if( ruleUids.contains(r.uid) )
+				moved.push(r);
+
+		if( moved.length==0 )
+			return [];
+
+		// Remove them from their groups
+		for(rg in ld.autoRuleGroups)
+			rg.rules = rg.rules.filter( r->!ruleUids.contains(r.uid) );
+
+		// Insertion index (computed AFTER removal)
+		var idx = 0;
+		if( afterRuleUid!=null && !ruleUids.contains(afterRuleUid) ) {
+			var after = ld.getRule(afterRuleUid);
+			if( after!=null && toGroup.rules.contains(after) )
+				idx = toGroup.rules.indexOf(after)+1;
+		}
+		idx = dn.M.iclamp(idx, 0, toGroup.rules.length);
+
+		// Insert block
+		for(r in moved)
+			toGroup.rules.insert(idx++, r);
+
+		return moved;
+	}
+
+
 	public function sortLayerAutoGroup(ld:data.def.LayerDef, fromGroupIdx:Int, toGroupIdx:Int) : Null<data.def.AutoLayerRuleGroupDef> {
 		if( fromGroupIdx<0 || fromGroupIdx>=ld.autoRuleGroups.length )
 			return null;

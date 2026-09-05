@@ -1,15 +1,29 @@
-
-<h2>Duplicate group: "::name::"</h2>
+<h2>::title::</h2>
 
 <div class="leftColumn">
 	<h3>Remap IntGrid values</h3>
-	<div class="help"> You can remap any IntGrid value used in this group of rules. </div>
-
+	<div class="help"> You can remap any IntGrid value used in these rules. </div>
 	<ul class="intGridIds"></ul>
+
+	<div class="groupsSection">
+		<h3>Remap IntGrid groups</h3>
+		<div class="help"> These rules also use IntGrid value groups. </div>
+		<ul class="intGridGroups"></ul>
+	</div>
 </div>
 
 <div class="rightColumn">
-	<h3>Transpose tiles</h3>
+	<h3>Remap tiles</h3>
+	<div class="tileModes">
+		<label title="All tiles used by these rules are moved by the same offset in the tileset. Click the new location of the highlighted first tile.">
+			<input type="radio" name="tileRemapMode" value="offset"/>
+			Transpose all tiles (same offset for all)
+		</label>
+		<label title="Pick a replacement for each tile individually.">
+			<input type="radio" name="tileRemapMode" value="individual"/>
+			Remap each tile individually
+		</label>
+	</div>
 	<div class="tileset"></div>
+	<ul class="tileRemaps"></ul>
 </div>
-

@@ -1036,9 +1036,10 @@ class LayerInstance {
 
 	inline function addRuleTilesAt(r:data.def.AutoLayerRuleDef, cx:Int, cy:Int, flips:Int) {
 		if( isAutoTileCellAllowed(cx,cy) ) {
-			var tileRectIds = r.getRandomTileRectIdsForCoord(seed, cx,cy, flips);
+			var tileRectIds = r.getRandomTileRectIdsForCoord(seed, cx,cy, flips); // tile pick uses matching flips only, so enabling random flips doesn't change picked tiles
+			var renderFlips = flips ^ r.getRandomTileFlipsForCoord(seed, cx,cy, flips); // XOR: a tile matched flipped can be un-flipped by random
 			var td = getTilesetDef();
-			var stampInfos = r.tileMode==Single ? null : getRuleStampRenderInfos(r, td, tileRectIds, flips);
+			var stampInfos = r.tileMode==Single ? null : getRuleStampRenderInfos(r, td, tileRectIds, renderFlips);
 
 			if( !autoTilesCache.get(r.uid).exists( coordId(cx,cy) ) )
 				autoTilesCache.get(r.uid).set( coordId(cx,cy), [] );
@@ -1046,12 +1047,12 @@ class LayerInstance {
 			autoTilesCache.get(r.uid).set( coordId(cx,cy), autoTilesCache.get(r.uid).get( coordId(cx,cy) ).concat(
 				tileRectIds.map( (tid)->{
 					return {
-						x: cx*def.gridSize + (stampInfos==null ? 0 : stampInfos.get(tid).xOff ) + r.getXOffsetForCoord(seed,cx,cy, flips),
-						y: cy*def.gridSize + (stampInfos==null ? 0 : stampInfos.get(tid).yOff ) + r.getYOffsetForCoord(seed,cx,cy, flips),
+						x: cx*def.gridSize + (stampInfos==null ? 0 : stampInfos.get(tid).xOff ) + r.getXOffsetForCoord(seed,cx,cy, renderFlips),
+						y: cy*def.gridSize + (stampInfos==null ? 0 : stampInfos.get(tid).yOff ) + r.getYOffsetForCoord(seed,cx,cy, renderFlips),
 						srcX: td.getTileSourceX(tid),
 						srcY: td.getTileSourceY(tid),
 						tid: tid,
-						flips: flips,
+						flips: renderFlips,
 						a: r.alpha,
 					}
 				} )

@@ -211,6 +211,10 @@ class LevelRender extends dn.Process {
 			case LayerRuleSeedChanged:
 				invalidateLayer( editor.curLayerInstance );
 
+			case LevelSeedChanged(l):
+				if( l==editor.curLevel )
+					invalidateAll();
+
 			case LayerRuleSorted:
 				invalidateLayer( editor.curLayerInstance );
 

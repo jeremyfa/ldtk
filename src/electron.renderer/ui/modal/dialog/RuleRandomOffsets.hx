@@ -32,8 +32,18 @@ class RuleRandomOffsets extends ui.modal.Dialog {
 			rule.tileYOffset = 0;
 			rule.tileRandomXMin = rule.tileRandomXMax = 0;
 			rule.tileRandomYMin = rule.tileRandomYMax = 0;
+			rule.tileRandomFlipX = false;
+			rule.tileRandomFlipY = false;
 			onChange();
 		});
+
+
+		// Random tile flips
+		var i = Input.linkToHtmlInput(rule.tileRandomFlipX, jContent.find("#randomFlipX"));
+		i.onChange = onChange;
+
+		var i = Input.linkToHtmlInput(rule.tileRandomFlipY, jContent.find("#randomFlipY"));
+		i.onChange = onChange;
 
 
 

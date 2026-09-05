@@ -409,6 +409,11 @@ class LayerDef {
 		return g==null ? "Ungrouped" : g.identifier==null ? 'Group ${g.uid}' : g.identifier;
 	}
 
+	/** Return a copy of the IntGrid value groups list **/
+	public function getAllIntGridGroups() : Array<ldtk.Json.IntGridValueGroupDef> {
+		return intGridValuesGroups.copy();
+	}
+
 	public function getIntGridGroup(groupUid:Int) : Null<ldtk.Json.IntGridValueGroupDef> {
 		for(g in intGridValuesGroups)
 			if( g.uid==groupUid )
@@ -605,6 +610,36 @@ class LayerDef {
 
 		p.tidy();
 		return copy;
+	}
+
+	/** Duplicate multiple rules: copies are inserted right after the last given rule, in the same order **/
+	public function duplicateRules(p:data.Project, rg:AutoLayerRuleGroupDef, rules:Array<AutoLayerRuleDef>) : Array<AutoLayerRuleDef> {
+		if( rules.length==0 )
+			return [];
+		var json = { rules: rules.map( r->r.toJson(this) ) };
+		return pasteRules( p, rg, Clipboard.createTemp(CRules, json), rules[rules.length-1] );
+	}
+
+	/** Paste multiple rules (CRules clipboard) after given rule (or at the end of the group) **/
+	public function pasteRules(p:data.Project, rg:AutoLayerRuleGroupDef, c:Clipboard, ?after:AutoLayerRuleDef) : Null<Array<AutoLayerRuleDef>> {
+		if( !c.is(CRules) )
+			return null;
+
+		var json : { rules:Array<ldtk.Json.AutoRuleDef> } = c.getParsedJson();
+		if( json==null || json.rules==null )
+			return null;
+
+		var copies = [];
+		var idx = after==null ? rg.rules.length : dn.Lib.getArrayIndex(after, rg.rules)+1;
+		for( ruleJson in json.rules ) {
+			var copy = AutoLayerRuleDef.fromJson( p.jsonVersion, ruleJson );
+			copy.uid = p.generateUniqueId_int();
+			rg.rules.insert(idx++, copy);
+			copies.push(copy);
+		}
+
+		p.tidy();
+		return copies;
 	}
 
 	public function duplicateRuleGroup(p:data.Project, rg:AutoLayerRuleGroupDef) {

@@ -36,6 +36,7 @@ enum GlobalEvent {
 	LayerRuleAdded(rule:data.def.AutoLayerRuleDef);
 	LayerRuleRemoved(rule:data.def.AutoLayerRuleDef, invalidates:Bool);
 	LayerRuleSeedChanged;
+	LevelSeedChanged(l:data.Level);
 	LayerRuleSorted;
 
 	LayerRuleGroupAdded(rg:data.def.AutoLayerRuleGroupDef);
@@ -220,6 +221,7 @@ enum ClipboardType {
 
 	CRuleGroup;
 	CRule;
+	CRules; // multiple rules: { rules:Array<ldtk.Json.AutoRuleDef> }
 }
 
 typedef CachedIID = {

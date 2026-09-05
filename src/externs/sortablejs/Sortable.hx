@@ -37,6 +37,12 @@ typedef SortableOptions = {
 	/** Element dragging ended **/
 	var ?onEnd: (SortableDragEvent)->Void;
 
+	/** Element is chosen (mouse down on a draggable element, before the actual drag starts) **/
+	var ?onChoose: (SortableDragEvent)->Void;
+
+	/** Element is no longer chosen **/
+	var ?onUnchoose: (SortableDragEvent)->Void;
+
 	/** Element is dropped into the list from another list **/
 	var ?onAdd: (SortableDragEvent)->Void;
 

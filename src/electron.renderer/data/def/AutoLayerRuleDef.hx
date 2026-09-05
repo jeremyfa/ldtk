@@ -15,6 +15,8 @@ class AutoLayerRuleDef {
 	public var outOfBoundsValue : Null<Int>;
 	public var flipX = false;
 	public var flipY = false;
+	public var tileRandomFlipX = false;
+	public var tileRandomFlipY = false;
 	public var active = true;
 	public var tileMode : ldtk.Json.AutoLayerRuleTileMode = Single;
 	public var pivotX = 0.;
@@ -62,6 +64,15 @@ class AutoLayerRuleDef {
 
 	public inline function hasAnyPositionOffset() {
 		return tileRandomXMin!=0 || tileRandomXMax!=0 || tileRandomYMin!=0 || tileRandomYMax!=0 || tileXOffset!=0 || tileYOffset!=0;
+	}
+
+	public inline function hasRandomTileFlip() {
+		return tileRandomFlipX || tileRandomFlipY;
+	}
+
+	/** Any random variation of the rendered tile (position offset or flip). For UI purpose only. **/
+	public inline function hasAnyRandomVariation() {
+		return hasAnyPositionOffset() || hasRandomTileFlip();
 	}
 
 	inline function isValidSize(size:Int) {
@@ -154,6 +165,8 @@ class AutoLayerRuleDef {
 			pattern: pattern.copy(), // WARNING: could leak to undo/redo leaks if (one day) pattern contained objects
 			flipX: flipX,
 			flipY: flipY,
+			tileRandomFlipX: tileRandomFlipX,
+			tileRandomFlipY: tileRandomFlipY,
 			xModulo: xModulo,
 			yModulo: yModulo,
 			xOffset: xOffset,
@@ -203,6 +216,8 @@ class AutoLayerRuleDef {
 		r.outOfBoundsValue = JsonTools.readNullableInt(json.outOfBoundsValue);
 		r.flipX = JsonTools.readBool(json.flipX, false);
 		r.flipY = JsonTools.readBool(json.flipY, false);
+		r.tileRandomFlipX = JsonTools.readBool(json.tileRandomFlipX, false);
+		r.tileRandomFlipY = JsonTools.readBool(json.tileRandomFlipY, false);
 		r.checker = JsonTools.readEnum(ldtk.Json.AutoLayerRuleCheckerMode, json.checker, false, None);
 		r.tileMode = JsonTools.readEnum(ldtk.Json.AutoLayerRuleTileMode, json.tileMode, false, Single);
 		r.pivotX = JsonTools.readFloat(json.pivotX, 0);
@@ -410,6 +425,8 @@ class AutoLayerRuleDef {
 			anyFix = true;
 		}
 
+		// NOTE: tileRandomFlipX/Y are intentionally NOT cleared on symetric patterns: they affect the rendered tile, not the pattern matching.
+
 		if( xModulo==1 && yModulo==1 && checker!=None ) {
 			App.LOG.add("tidy", 'Fixed checker mode of Rule#$uid');
 			checker = None;
@@ -442,6 +459,19 @@ class AutoLayerRuleDef {
 			return [];
 		else
 			return tileRectsIds[ dn.M.randSeedCoords( uid+seed+flips, cx,cy, tileRectsIds.length ) ];
+	}
+
+	/**
+		Return random tile flip bits (bit0=X, bit1=Y) for given coord, based on tileRandomFlipX/Y settings.
+		NOTE: `dn.M.randSeedCoords` may return negative values, hence the `iabs`.
+	**/
+	public function getRandomTileFlipsForCoord(seed:Int, cx:Int,cy:Int, flips:Int) : Int {
+		var out = 0;
+		if( tileRandomFlipX && M.iabs( dn.M.randSeedCoords( uid+seed+flips+7919, cx,cy, 100 ) ) < 50 )
+			out = M.setBit(out, 0);
+		if( tileRandomFlipY && M.iabs( dn.M.randSeedCoords( uid+seed+flips+104729, cx,cy, 100 ) ) < 50 )
+			out = M.setBit(out, 1);
+		return out;
 	}
 
 	public function getXOffsetForCoord(seed:Int, cx:Int,cy:Int, flips:Int) : Int {

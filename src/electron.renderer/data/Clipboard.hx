@@ -148,6 +148,10 @@ class Clipboard {
 					var json : data.def.AutoLayerRuleGroupDef = jsonObj;
 					'Rule group "${json.name}"';
 
+				case CRules:
+					var json : { rules:Array<Dynamic> } = jsonObj;
+					'${json.rules==null ? 0 : json.rules.length} rules';
+
 				case CLayerDef:
 					var json : ldtk.Json.LayerDefJson = jsonObj;
 					'Layer definition "${json.identifier}"';
