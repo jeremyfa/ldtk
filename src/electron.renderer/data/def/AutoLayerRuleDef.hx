@@ -10,7 +10,8 @@ class AutoLayerRuleDef {
 	public var chance : Float = 1.0;
 	public var breakOnMatch = true;
 	public var size(default,null): Int;
-	var pattern : Array<Int> = [];
+	var pattern : Array<Int> = []; // first condition of each cell (0 = ignored)
+	var patternAlt : Array<Array<Int>> = []; // extra conditions of each cell, same indexing as pattern. Invariant: patternAlt[i].length>0 => pattern[i]!=0
 	public var alpha = 1.;
 	public var outOfBoundsValue : Null<Int>;
 	public var flipX = false;
@@ -56,10 +57,15 @@ class AutoLayerRuleDef {
 	}
 
 	public function updateUsedValues() {
+		// NOTE: only single-condition cells are hard requirements: a cell like "X or Y" requires neither X nor Y specifically.
 		explicitlyRequiredValues = [];
-		for(v in pattern)
+		for(i in 0...pattern.length) {
+			if( patternAlt[i]!=null && patternAlt[i].length>0 )
+				continue;
+			var v = pattern[i];
 			if( v>0 && v!=Const.AUTO_LAYER_ANYTHING && !explicitlyRequiredValues.contains(v) )
 				explicitlyRequiredValues.push(v);
+		}
 	}
 
 	public inline function hasAnyPositionOffset() {
@@ -106,7 +112,7 @@ class AutoLayerRuleDef {
 	public function isSymetricX() {
 		for( cx in 0...Std.int(size*0.5) )
 		for( cy in 0...size )
-			if( pattern[coordId(cx,cy)] != pattern[coordId(size-1-cx,cy)] )
+			if( !cellEquals( coordId(cx,cy), coordId(size-1-cx,cy) ) )
 				return false;
 
 		return true;
@@ -115,7 +121,26 @@ class AutoLayerRuleDef {
 	public function isSymetricY() {
 		for( cx in 0...size )
 		for( cy in 0...Std.int(size*0.5) )
-			if( pattern[coordId(cx,cy)] != pattern[coordId(cx,size-1-cy)] )
+			if( !cellEquals( coordId(cx,cy), coordId(cx,size-1-cy) ) )
+				return false;
+
+		return true;
+	}
+
+	/** Compare all the conditions of 2 cells (order insensitive) **/
+	function cellEquals(i:Int, j:Int) : Bool {
+		if( pattern[i]==0 || pattern[j]==0 )
+			return pattern[i]==pattern[j];
+
+		var a = [ pattern[i] ].concat( patternAlt[i] );
+		var b = [ pattern[j] ].concat( patternAlt[j] );
+		if( a.length!=b.length )
+			return false;
+
+		a.sort( (x,y)->x-y );
+		b.sort( (x,y)->x-y );
+		for(k in 0...a.length)
+			if( a[k]!=b[k] )
 				return false;
 
 		return true;
@@ -125,12 +150,56 @@ class AutoLayerRuleDef {
 		return pattern[ coordId(cx,cy) ];
 	}
 
+	/** Set a cell to a single condition (any extra condition of this cell is discarded) **/
 	public inline function setPattern(cx,cy,v) {
 		if( !isValid(cx,cy) )
 			return 0;
 
 		pattern[ coordId(cx,cy) ] = v;
+		patternAlt[ coordId(cx,cy) ] = [];
 		return v;
+	}
+
+	/** Return all the conditions of a cell (the first one from `pattern`, then the extra ones), or an empty array **/
+	public function getCellConditions(cx:Int, cy:Int) : Array<Int> {
+		if( !isValid(cx,cy) || pattern[coordId(cx,cy)]==0 )
+			return [];
+		return [ pattern[coordId(cx,cy)] ].concat( patternAlt[coordId(cx,cy)] );
+	}
+
+	public inline function hasMultiConditions(cx:Int, cy:Int) {
+		return isValid(cx,cy) && patternAlt[coordId(cx,cy)].length>0;
+	}
+
+	public function hasAnyMultiConditionCell() {
+		for(alt in patternAlt)
+			if( alt.length>0 )
+				return true;
+		return false;
+	}
+
+	/**
+		Replace all the conditions of a cell.
+		Conditions are normalized: zeros are removed, duplicates are removed, and if both +v and -v are present, only the last one is kept.
+		A cell matches if (it has no required value, or the cell value is one of the required values) AND (the cell value is none of the forbidden values).
+	**/
+	public function setCellConditions(cx:Int, cy:Int, conds:Array<Int>) {
+		if( !isValid(cx,cy) )
+			return;
+
+		var normalized : Array<Int> = [];
+		for(v in conds) {
+			if( v==0 )
+				continue;
+			normalized.remove(v);
+			normalized.remove(-v);
+			normalized.push(v);
+		}
+
+		var i = coordId(cx,cy);
+		pattern[i] = normalized.length==0 ? 0 : normalized[0];
+		patternAlt[i] = normalized.length<=1 ? [] : normalized.slice(1);
+		updateUsedValues();
 	}
 
 	public inline function fill(v:Int) {
@@ -142,8 +211,11 @@ class AutoLayerRuleDef {
 
 	function initPattern() {
 		pattern = [];
-		for(i in 0...size*size)
+		patternAlt = [];
+		for(i in 0...size*size) {
 			pattern[i] = 0;
+			patternAlt[i] = [];
+		}
 		updateUsedValues();
 	}
 
@@ -163,6 +235,7 @@ class AutoLayerRuleDef {
 			chance: JsonTools.writeFloat(chance),
 			breakOnMatch: breakOnMatch,
 			pattern: pattern.copy(), // WARNING: could leak to undo/redo leaks if (one day) pattern contained objects
+			patternAlt: hasAnyMultiConditionCell() ? patternAlt.map( a->a.copy() ) : null, // deep copy, same reason as above
 			flipX: flipX,
 			flipY: flipY,
 			tileRandomFlipX: tileRandomFlipX,
@@ -212,6 +285,22 @@ class AutoLayerRuleDef {
 		r.breakOnMatch = JsonTools.readBool(json.breakOnMatch, false); // default to FALSE to avoid breaking old maps
 		r.chance = JsonTools.readFloat(json.chance);
 		r.pattern = json.pattern;
+
+		// Extra conditions per cell (optional, tolerant reading)
+		r.patternAlt = [];
+		var jsonAlt : Array<Dynamic> = cast json.patternAlt;
+		var validAlt = jsonAlt!=null && jsonAlt.length==r.size*r.size;
+		for(i in 0...r.size*r.size) {
+			var extra : Array<Int> = [];
+			if( validAlt && Std.isOfType(jsonAlt[i], Array) )
+				for( v in (cast jsonAlt[i] : Array<Dynamic>) )
+					if( Std.isOfType(v, Int) && v!=0 )
+						extra.push(v);
+			if( r.pattern[i]==0 && extra.length>0 )
+				r.pattern[i] = extra.shift(); // enforce invariant: the first condition always lives in `pattern`
+			r.patternAlt[i] = extra;
+		}
+
 		r.alpha = JsonTools.readFloat(json.alpha, 1);
 		r.outOfBoundsValue = JsonTools.readNullableInt(json.outOfBoundsValue);
 		r.flipX = JsonTools.readBool(json.flipX, false);
@@ -253,6 +342,7 @@ class AutoLayerRuleDef {
 
 		var oldSize = size;
 		var oldPatt = pattern.copy();
+		var oldAlt = patternAlt.copy();
 		var pad = Std.int( dn.M.iabs(newSize-oldSize) / 2 );
 
 		size = newSize;
@@ -260,15 +350,20 @@ class AutoLayerRuleDef {
 		if( newSize<oldSize ) {
 			// Decrease
 			for( cx in 0...newSize )
-			for( cy in 0...newSize )
+			for( cy in 0...newSize ) {
 				pattern[cx + cy*newSize] = oldPatt[cx+pad + (cy+pad)*oldSize];
+				patternAlt[cx + cy*newSize] = oldAlt[cx+pad + (cy+pad)*oldSize];
+			}
 		}
 		else {
 			// Increase
 			for( cx in 0...oldSize )
-			for( cy in 0...oldSize )
+			for( cy in 0...oldSize ) {
 				pattern[cx+pad + (cy+pad)*newSize] = oldPatt[cx + cy*oldSize];
+				patternAlt[cx+pad + (cy+pad)*newSize] = oldAlt[cx + cy*oldSize];
+			}
 		}
+		updateUsedValues();
 	}
 
 	inline function coordId(cx,cy) return cx+cy*size;
@@ -313,17 +408,21 @@ class AutoLayerRuleDef {
 		if( ld.type!=IntGrid )
 			throw "Invalid layer type";
 
-		for(v in pattern) {
-			if( v==0 )
-				continue;
-
+		inline function _isUnknown(v:Int) {
 			v = M.iabs(v);
+			return v!=0 && (
+				v<=999 && !ld.hasIntGridValue(v)
+				|| v>999 && v!=Const.AUTO_LAYER_ANYTHING && !ld.hasIntGridGroup( ld.resolveIntGridGroupUidFromRuleValue(v) )
+			);
+		}
 
-			if( v<=999 && !ld.hasIntGridValue(v) )
+		for(i in 0...pattern.length) {
+			if( _isUnknown(pattern[i]) )
 				return true;
 
-			if( v>999 && v!=Const.AUTO_LAYER_ANYTHING && !ld.hasIntGridGroup( ld.resolveIntGridGroupUidFromRuleValue(v) ) )
-				return true;
+			for(v in patternAlt[i])
+				if( _isUnknown(v) )
+					return true;
 		}
 
 		return false;
@@ -364,7 +463,6 @@ class AutoLayerRuleDef {
 
 		// Rule check
 		var value : Null<Int> = 0;
-		var valueInf : Null<data.DataTypes.IntGridValueDefEditor> = null;
 		var radius = Std.int( size/2 );
 		for(px in 0...size)
 		for(py in 0...size) {
@@ -379,33 +477,45 @@ class AutoLayerRuleDef {
 			if( value==null )
 				return false;
 
-			if( dn.M.iabs( pattern[coordId] ) == Const.AUTO_LAYER_ANYTHING ) {
-				// "Anything" checks
-				if( pattern[coordId]>0 && value==0 )
-					return false;
-
-				if( pattern[coordId]<0 && value!=0 )
-					return false;
-			}
-			else if( dn.M.iabs( pattern[coordId] ) > 999 ) {
-				// Group checks
-				valueInf = source.def.getIntGridValueDef(value);
-				if( pattern[coordId]>0 && ( valueInf==null || valueInf.groupUid != Std.int(pattern[coordId]/1000)-1 ) )
-					return false;
-
-				if( pattern[coordId]<0 && ( valueInf!=null && valueInf.groupUid == Std.int(-pattern[coordId]/1000)-1 ) )
+			var alt = patternAlt[coordId];
+			if( alt.length==0 ) {
+				// Single condition (fast path)
+				if( !termMatches(pattern[coordId], value, source) )
 					return false;
 			}
 			else {
-				// Specific value checks
-				if( pattern[coordId]>0 && value != pattern[coordId] )
-					return false;
-
-				if( pattern[coordId]<0 && value == -pattern[coordId] )
+				// Multiple conditions: (no required value, or any required value matches) AND (no forbidden value matches)
+				var hasPositive = false;
+				var anyPositiveOk = false;
+				for(k in -1...alt.length) {
+					var t = k<0 ? pattern[coordId] : alt[k];
+					if( t>0 ) {
+						hasPositive = true;
+						if( !anyPositiveOk && termMatches(t, value, source) )
+							anyPositiveOk = true;
+					}
+					else if( !termMatches(t, value, source) )
+						return false;
+				}
+				if( hasPositive && !anyPositiveOk )
 					return false;
 			}
 		}
 		return true;
+	}
+
+	/** Check a single condition against an IntGrid value: +v = value required, -v = value forbidden, with the "anything" and group special values **/
+	inline function termMatches(term:Int, value:Int, source:data.inst.LayerInstance) : Bool {
+		var abs = dn.M.iabs(term);
+		if( abs==Const.AUTO_LAYER_ANYTHING )
+			return term>0 ? value!=0 : value==0;
+		else if( abs>999 ) {
+			var valueInf = source.def.getIntGridValueDef(value);
+			var inGroup = valueInf!=null && valueInf.groupUid == Std.int(abs/1000)-1;
+			return term>0 ? inGroup : !inGroup;
+		}
+		else
+			return term>0 ? value==abs : value!=abs;
 	}
 
 	public function tidy(ld:LayerDef) {

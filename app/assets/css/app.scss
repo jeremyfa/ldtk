@@ -9475,6 +9475,66 @@ $patternSize : 32px;
 			z-index: 0;
 			image-rendering: pixelated;
 		}
+
+		// Cell holding multiple conditions: small sub-swatches
+		&.multi {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			grid-auto-rows: 1fr;
+			gap: 1px;
+			padding: 2px;
+			box-sizing: border-box;
+			justify-content: stretch;
+			align-content: stretch;
+			background-color: $bgMed;
+			outline: 1px solid white;
+			outline-offset: -2px;
+
+			.cond {
+				position: relative;
+				min-width: 0;
+				min-height: 0;
+				border-radius: 2px;
+				background-color: $bgLight;
+				overflow: hidden;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 7pt;
+				font-weight: bold;
+				color: white;
+
+				.cellIcon {
+					width: 100%;
+					height: 100%;
+					background-size: 80%;
+				}
+				.valueIcon {
+					width: 100%;
+					height: 100%;
+					object-fit: contain;
+				}
+				&.not {
+					outline: 1px solid $red;
+					outline-offset: -1px;
+				}
+				&.anything::before {
+					content: "?";
+				}
+				&.unknown {
+					background-color: #ff00ff;
+				}
+				&.more {
+					background-color: $bgDark;
+				}
+			}
+		}
+	}
+
+	// Panel preview of large patterns: multi-condition cells are only marked
+	&.preview.size-7 .cell.multi,
+	&.preview.size-9 .cell.multi {
+		background: linear-gradient(135deg, $green 50%, $red 50%);
 	}
 }
 
@@ -9548,6 +9608,101 @@ $patternSize : 32px;
 					}
 				}
 			}
+		}
+	}
+}
+
+
+.window.dialog.ruleCellEditor {
+	.wrapper {
+		width: 400px;
+
+		.content {
+			display: grid;
+			gap: 6px;
+		}
+
+		.summary {
+			font-style: italic;
+			color: white;
+			min-height: 1.2em;
+		}
+
+		.warning {
+			color: $red;
+			font-weight: bold;
+		}
+
+		ul.conditions {
+			max-height: 50vh;
+			overflow-y: auto;
+
+			li {
+				display: grid;
+				grid-template-columns: 32px 1fr 72px 72px;
+				align-items: center;
+				gap: 6px;
+				padding: 2px 4px;
+				border-radius: 3px;
+
+				&.header {
+					font-size: 8pt;
+					color: $almostWhite;
+					text-align: center;
+					.name {
+						text-align: left;
+					}
+				}
+				&:not(.header):hover {
+					background-color: $bgLight;
+				}
+				&.required {
+					background-color: transparentize($green, 0.8);
+				}
+				&.forbidden {
+					background-color: transparentize($red, 0.8);
+				}
+				&.group .name {
+					font-weight: bold;
+				}
+
+				.groupSwatch,
+				.anySwatch {
+					width: 32px;
+					height: 32px;
+					box-sizing: border-box;
+					border-radius: 3px;
+					border: 1px solid white;
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					font-weight: bold;
+					font-size: 14pt;
+					.icon {
+						width: 20px;
+						height: 20px;
+					}
+				}
+
+				.name {
+					overflow: hidden;
+					text-overflow: ellipsis;
+					white-space: nowrap;
+				}
+
+				button {
+					justify-self: center;
+					padding: 2px;
+					.icon {
+						width: 20px;
+						height: 20px;
+					}
+				}
+			}
+		}
+
+		button.clear {
+			justify-self: start;
 		}
 	}
 }

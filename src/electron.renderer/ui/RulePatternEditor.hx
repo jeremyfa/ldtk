@@ -13,6 +13,7 @@ class RulePatternEditor {
 
 	var drawButton = -1;
 	var valueAtStartPoint : Null<Int> = null; // value when clicking starts
+	var cellEditor : Null<ui.modal.dialog.RuleCellEditor>; // popup editing the multiple conditions of a cell
 
 	public function new(
 		rule: data.def.AutoLayerRuleDef,
@@ -123,7 +124,9 @@ class RulePatternEditor {
 			// Cell value (color + tile)
 			if( !isCenter || !previewMode ) {
 				var ruleValue = rule.getPattern(cx,cy);
-				if( ruleValue!=0 ) {
+				if( rule.hasMultiConditions(cx,cy) )
+					renderMultiConditionsCell(jCell, cx, cy, addExplain);
+				else if( ruleValue!=0 ) {
 					var intGridVal = M.iabs(ruleValue);
 					if( ruleValue>0 ) {
 						// Required value
@@ -195,7 +198,10 @@ class RulePatternEditor {
 			if( isEditable() ) {
 
 				var anyChange = false;
-				function draw() {
+				function draw(fromDrag:Bool) {
+					// Dragging over a cell with multiple conditions doesn't erase it (an explicit click does)
+					if( fromDrag && rule.hasMultiConditions(cx,cy) )
+						return;
 
 					var v = rule.getPattern(cx,cy);
 					switch drawButton {
@@ -230,6 +236,13 @@ class RulePatternEditor {
 				}
 
 				jCell.mousedown( (ev:js.jquery.Event)->{
+					// Shift+click, or left click on a cell that already has multiple conditions: edit the conditions of this cell
+					if( ev.shiftKey || ev.button==0 && rule.hasMultiConditions(cx,cy) ) {
+						ev.preventDefault();
+						openCellEditor(jCell, cx, cy);
+						return;
+					}
+
 					valueAtStartPoint = rule.getPattern(cx,cy);
 					drawButton = ev.button;
 					App.ME.jBody.on("mouseup.rulePattern", (_)->{
@@ -238,16 +251,122 @@ class RulePatternEditor {
 						if( anyChange )
 							onChange();
 					});
-					draw();
+					draw(false);
 				});
 
-				jCell.mousemove( function(ev) {
-					if( drawButton>=0 )
-						draw();
+				jCell.mousemove( function(ev:js.jquery.Event) {
+					if( drawButton>=0 && !ev.shiftKey )
+						draw(true);
 				});
 			}
 		}
 
+		// Keep the cell editor popup anchored to the (rebuilt) cell it edits
+		if( cellEditor!=null && !cellEditor.destroyed ) {
+			var jNewCell = jRoot.children(".cell").eq( cellEditor.cx + cellEditor.cy*rule.size );
+			if( jNewCell.length>0 )
+				cellEditor.setAnchor( MA_JQuery(jNewCell) );
+		}
+
 		return jRoot;
+	}
+
+
+	function openCellEditor(jCell:js.jquery.JQuery, cx:Int, cy:Int) {
+		closeCellEditor();
+		cellEditor = new ui.modal.dialog.RuleCellEditor(jCell, rule, cx, cy, sourceDef, ()->{
+			render();
+			if( onChange!=null )
+				onChange();
+		});
+	}
+
+	public function closeCellEditor() {
+		if( cellEditor!=null && !cellEditor.destroyed )
+			cellEditor.close();
+		cellEditor = null;
+	}
+
+
+	/** Render a cell holding several conditions, as small sub-swatches (required values first, then forbidden ones) **/
+	function renderMultiConditionsCell(jCell:js.jquery.JQuery, cx:Int, cy:Int, addExplain:(jTarget:js.jquery.JQuery, desc:String)->Void) {
+		var conds = rule.getCellConditions(cx,cy);
+		var positives = conds.filter( v->v>0 );
+		var negatives = conds.filter( v->v<0 );
+		var sorted = positives.concat(negatives);
+
+		jCell.addClass("multi");
+
+		// Sub-swatches (the panel preview of large patterns is too small to show them)
+		if( !previewMode || rule.size<=5 ) {
+			var max = 4;
+			var shown = sorted.length>max ? max-1 : sorted.length;
+			for(i in 0...shown) {
+				var jCond = new J('<div class="cond"/>');
+				jCond.appendTo(jCell);
+				styleTerm(jCond, sorted[i]);
+			}
+			if( sorted.length>max )
+				jCell.append('<div class="cond more">+${sorted.length-shown}</div>');
+		}
+
+		// Explanation
+		var desc = [];
+		if( positives.length>0 )
+			desc.push( "This cell should be one of: " + positives.map( v->describeTerm(sourceDef,v) ).join(", ") + "." );
+		if( negatives.length>0 )
+			desc.push( "This cell should NOT be: " + negatives.map( v->describeTerm(sourceDef,v) ).join(", ") + "." );
+		addExplain(jCell, desc.join("\\n"));
+	}
+
+
+	/** Apply the visual style of a single condition to given element (color, icon, "not" cross, etc.) **/
+	function styleTerm(jEl:js.jquery.JQuery, term:Int) {
+		var abs = M.iabs(term);
+
+		if( term<0 ) {
+			jEl.addClass("not");
+			jEl.append('<span class="cellIcon ${abs==Const.AUTO_LAYER_ANYTHING ? "nothing" : "cross"}"></span>');
+		}
+
+		if( abs==Const.AUTO_LAYER_ANYTHING )
+			jEl.addClass("anything");
+		else if( abs>999 ) {
+			var groupUid = sourceDef.resolveIntGridGroupUidFromRuleValue(abs);
+			jEl.addClass("group");
+			if( sourceDef.hasIntGridGroup(groupUid) ) {
+				var color = sourceDef.getIntGridGroupColor(groupUid);
+				if( color!=null )
+					jEl.css("background-color", color.toCssRgba(0.9));
+			}
+			else
+				jEl.addClass("unknown");
+		}
+		else if( sourceDef.hasIntGridValue(abs) ) {
+			var iv = sourceDef.getIntGridValueDef(abs);
+			jEl.css("background-color", C.intToHex(iv.color));
+			if( iv.tile!=null )
+				jEl.prepend( sourceDef._project.resolveTileRectAsHtmlImg(iv.tile).addClass("valueIcon") );
+		}
+		else
+			jEl.addClass("unknown");
+	}
+
+
+	/** Human readable name of a single condition value (sign is ignored) **/
+	public static function describeTerm(sourceDef:data.def.LayerDef, term:Int) : String {
+		var abs = M.iabs(term);
+		if( abs==Const.AUTO_LAYER_ANYTHING )
+			return term>0 ? "any value" : "empty";
+		else if( abs>999 ) {
+			var groupUid = sourceDef.resolveIntGridGroupUidFromRuleValue(abs);
+			return sourceDef.hasIntGridGroup(groupUid)
+				? 'any value of group "${sourceDef.getIntGridGroupDisplayName(groupUid)}"'
+				: 'unknown group';
+		}
+		else if( sourceDef.hasIntGridValue(abs) )
+			return '"${sourceDef.getIntGridValueDisplayName(abs)}"';
+		else
+			return 'unknown value #$abs';
 	}
 }

@@ -26,8 +26,9 @@ class RuleEditor extends ui.modal.Dialog {
 		var counts = new Map();
 		var best = -1;
 		for(cy in 0...rule.size)
-		for(cx in 0...rule.size) {
-			var v = M.iabs( rule.getPattern(cx,cy) );
+		for(cx in 0...rule.size)
+		for(c in rule.getCellConditions(cx,cy)) {
+			var v = M.iabs(c);
 			if( v==0 || v==Const.AUTO_LAYER_ANYTHING )
 				continue;
 
@@ -62,6 +63,8 @@ class RuleEditor extends ui.modal.Dialog {
 		}
 	}
 
+	public inline function isGuidedMode() return guidedMode;
+
 	function enableGuidedMode() {
 		guidedMode = true;
 		jContent.addClass("guided");
@@ -71,6 +74,7 @@ class RuleEditor extends ui.modal.Dialog {
 
 
 	override function close() {
+		closeCellEditor();
 		rule.trim();
 		rule.updateUsedValues();
 
@@ -95,6 +99,14 @@ class RuleEditor extends ui.modal.Dialog {
 	function onAnyRuleChange() {
 		hasAnyChange = true;
 		// editor.ge.emit( LayerRuleChanged(rule) );
+	}
+
+
+	/** Close the "cell conditions" popup, if any: it targets a pattern editor that is about to be discarded **/
+	function closeCellEditor() {
+		var ce = ui.Modal.getFirst(ui.modal.dialog.RuleCellEditor);
+		if( ce!=null )
+			ce.close();
 	}
 
 
@@ -321,6 +333,7 @@ class RuleEditor extends ui.modal.Dialog {
 
 
 	function renderAll() {
+		closeCellEditor();
 
 		loadTemplate("ruleEditor");
 		jContent.find("[data-title],[title]").addClass("disableTip"); // removed on guided mode

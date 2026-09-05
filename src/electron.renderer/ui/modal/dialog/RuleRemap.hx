@@ -52,8 +52,9 @@ class RuleRemap extends ui.modal.Dialog {
 		// List used IntGrid IDs & groups
 		for(r in srcRules)
 		for(cx in 0...r.size)
-		for(cy in 0...r.size) {
-			var v = M.iabs( r.getPattern(cx,cy) );
+		for(cy in 0...r.size)
+		for(c in r.getCellConditions(cx,cy)) {
+			var v = M.iabs(c);
 			if( v==0 || v==Const.AUTO_LAYER_ANYTHING )
 				continue;
 			if( v>999 )
@@ -166,18 +167,26 @@ class RuleRemap extends ui.modal.Dialog {
 			for(i in 0...rectIds.length)
 				rectIds[i] = remapTileId(rectIds[i]);
 
-			// Pattern values & groups
+			// Pattern values & groups (all conditions of each cell)
 			for(cx in 0...r.size)
 			for(cy in 0...r.size) {
-				var v = r.getPattern(cx,cy);
-				var av = M.iabs(v);
-				if( av==0 || av==Const.AUTO_LAYER_ANYTHING )
+				var conds = r.getCellConditions(cx,cy);
+				if( conds.length==0 )
 					continue;
-				var nv = av>999
-					? ( groupRemaps.exists(av) ? groupRemaps.get(av) : av )
-					: ( idRemaps.exists(av) ? idRemaps.get(av) : av );
-				if( nv!=av )
-					r.setPattern(cx,cy, v<0 ? -nv : nv);
+				var changed = false;
+				var remapped = conds.map( v->{
+					var av = M.iabs(v);
+					if( av==0 || av==Const.AUTO_LAYER_ANYTHING )
+						return v;
+					var nv = av>999
+						? ( groupRemaps.exists(av) ? groupRemaps.get(av) : av )
+						: ( idRemaps.exists(av) ? idRemaps.get(av) : av );
+					if( nv!=av )
+						changed = true;
+					return v<0 ? -nv : nv;
+				});
+				if( changed )
+					r.setCellConditions(cx,cy, remapped);
 			}
 			r.updateUsedValues();
 

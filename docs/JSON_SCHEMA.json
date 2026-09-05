@@ -836,7 +836,7 @@
 					]
 				},
 				"pattern": {
-					"description": "Rule pattern (size x size)",
+					"description": "Rule pattern (size x size). Each cell holds its first condition: 0 = ignored, +v = IntGrid value v required, -v = value v forbidden (see `patternAlt` for extra conditions).",
 					"items": {
 						"type": [
 							"integer"
@@ -979,6 +979,23 @@
 					"description": "Max random offset for X tile pos",
 					"type": [
 						"integer"
+					]
+				},
+				"patternAlt": {
+					"description": "Extra conditions per pattern cell (same size and order as `pattern`, same value encoding). `null` if no cell has more than one condition.<br/>  A cell matches if (it has no required value, or the cell value is one of the required values) AND (the cell value is none of the forbidden values).",
+					"items": {
+						"items": {
+							"type": [
+								"integer"
+							]
+						},
+						"type": [
+							"array"
+						]
+					},
+					"type": [
+						"array",
+						"null"
 					]
 				},
 				"pivotY": {

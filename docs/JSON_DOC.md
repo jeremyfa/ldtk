@@ -265,7 +265,8 @@ Value | Type | Description
 `flipY`<br/><sup class="internal">*Only used by editor*</sup> | Bool | If TRUE, allow rule to be matched by flipping its pattern vertically
 `invalidated`<br/><sup class="internal">*Only used by editor*</sup><br/> ![Generic badge](https://img.shields.io/badge/Added_1.5.2-green.svg)  | Bool | If TRUE, then the rule should be re-evaluated by the editor at one point
 `outOfBoundsValue`<br/><sup class="internal">*Only used by editor*</sup><br/> ![Generic badge](https://img.shields.io/badge/Added_0.9.0-gray.svg)  | Int&nbsp;*(can&nbsp;be&nbsp;`null`)* | Default IntGrid value when checking cells outside of level bounds
-`pattern`<br/><sup class="internal">*Only used by editor*</sup> | Array&nbsp;of&nbsp;Int | Rule pattern (size x size)
+`pattern`<br/><sup class="internal">*Only used by editor*</sup> | Array&nbsp;of&nbsp;Int | Rule pattern (size x size). Each cell holds its first condition: 0 = ignored, +v = IntGrid value v required, -v = value v forbidden (see `patternAlt` for extra conditions).
+`patternAlt`<br/><sup class="internal">*Only used by editor*</sup><br/> ![Generic badge](https://img.shields.io/badge/Added_1.5.4-green.svg)  | Array&nbsp;of&nbsp;Array&nbsp;of&nbsp;Int&nbsp;*(can&nbsp;be&nbsp;`null`)* | Extra conditions per pattern cell (same size and order as `pattern`, same value encoding). `null` if no cell has more than one condition.<br/>		A cell matches if (it has no required value, or the cell value is one of the required values) AND (the cell value is none of the forbidden values).
 `perlinActive`<br/><sup class="internal">*Only used by editor*</sup> | Bool | If TRUE, enable Perlin filtering to only apply rule on specific random area
 `perlinOctaves`<br/><sup class="internal">*Only used by editor*</sup> | Float | 
 `perlinScale`<br/><sup class="internal">*Only used by editor*</sup> | Float | 
