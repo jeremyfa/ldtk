@@ -9,7 +9,8 @@
 		"start": "electron .",
 		"compile": "cd ..  &&  haxe main.hxml  &&  haxe renderer.hxml",
 		"doc": "cd ..  &&  haxe doc.hxml",
-		"pack-prepare": "npm run doc  &&  npm run compile",
+		"css": "sass assets/css/app.scss assets/css/app.min.css --style=compressed --no-source-map --quiet",
+		"pack-prepare": "npm run css  &&  npm run doc  &&  npm run compile",
 		"pack-test": "npm run pack-prepare  &&  electron-builder build --win --dir --publish never",
 		"pack-win": "npm run pack-prepare  &&  electron-builder build --win --x64 --ia32",
 		"pack-macos": "npm run pack-prepare  &&  electron-builder build --mac --universal --publish never",
@@ -37,6 +38,7 @@
 	},
 	"devDependencies": {
 		"electron": "^24.1.2",
-		"electron-builder": "^23.6.0"
+		"electron-builder": "^23.6.0",
+		"sass": "^1.104.0"
 	}
 }
