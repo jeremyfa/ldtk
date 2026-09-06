@@ -423,11 +423,11 @@ class LayerDef {
 
 
 	public inline function resolveIntGridGroupUidFromRuleValue(ruleValue:Int) {
-		return Std.int(ruleValue/1000)-1;
+		return ldtk.rules.RuleConst.groupUidFromRuleValue(ruleValue);
 	}
 
 	public inline function getRuleValueFromGroupUid(groupUid:Int) {
-		return groupUid<0 ? -1 : ( groupUid + 1 ) * 1000;
+		return ldtk.rules.RuleConst.ruleValueFromGroupUid(groupUid);
 	}
 
 	public function hasIntGridGroup(groupUid:Int) {

@@ -1,7 +1,6 @@
 package ui.modal.dialog;
 
 class RulePerlinSettings extends ui.modal.Dialog {
-	var perlin: hxd.Perlin;
 	var preview : h2d.Graphics;
 	var rule : data.def.AutoLayerRuleDef;
 
@@ -9,10 +8,6 @@ class RulePerlinSettings extends ui.modal.Dialog {
 		super();
 
 		rule = r;
-
-		perlin = new hxd.Perlin();
-		perlin.normalize = true;
-		perlin.adjustScale(50, 1);
 
 		preview = new h2d.Graphics();
 		editor.levelRender.root.add(preview, Const.DP_UI);
@@ -62,7 +57,6 @@ class RulePerlinSettings extends ui.modal.Dialog {
 		super.onDispose();
 
 		preview.remove();
-		perlin = null;
 	}
 
 	function updatePreview() {
@@ -71,7 +65,7 @@ class RulePerlinSettings extends ui.modal.Dialog {
 		var li = editor.curLayerInstance;
 		for( cy in 0...li.cHei )
 		for( cx in 0...li.cWid ) {
-			if( perlin.perlin(li.seed+rule.perlinSeed, cx*rule.perlinScale, cy*rule.perlinScale, rule.perlinOctaves) < 0 )
+			if( rule.getPerlin().perlin(li.seed+rule.perlinSeed, cx*rule.perlinScale, cy*rule.perlinScale, rule.perlinOctaves) < 0 ) // same instance and config as the rule engine
 				preview.beginFill(0xff0000, 0.5);
 			else
 				preview.beginFill(0xb3f700, 0.3);

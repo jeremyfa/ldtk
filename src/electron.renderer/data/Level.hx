@@ -588,7 +588,7 @@ class Level {
 
 	/** Derive a per-layer random seed from the level root seed (deterministic) **/
 	inline function deriveLayerSeed(layerDefUid:Int) : Int {
-		return M.iabs( dn.M.randSeedCoords(seed, layerDefUid, 0, 9999999) );
+		return ldtk.rules.RuleRandom.deriveLayerSeed(seed, layerDefUid);
 	}
 
 	/** Re-derive all per-layer random seeds from the level root seed. Does nothing if the level has no root seed. **/

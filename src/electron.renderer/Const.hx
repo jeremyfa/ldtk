@@ -187,8 +187,8 @@ class Const {
 		return dn.DecisionHelper.quickPick( getNicePalette(), (c)->-useCounts.get(c) );
 	}
 
-	public static var AUTO_LAYER_ANYTHING = 1000001;
-	public static var MAX_AUTO_PATTERN_SIZE = 9;
+	public static inline var AUTO_LAYER_ANYTHING = ldtk.rules.RuleConst.ANYTHING;
+	public static inline var MAX_AUTO_PATTERN_SIZE = ldtk.rules.RuleConst.MAX_PATTERN_SIZE;
 
 #end
 }

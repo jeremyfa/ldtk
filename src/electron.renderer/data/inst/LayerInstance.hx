@@ -2,7 +2,7 @@ package data.inst;
 
 import data.DataTypes;
 
-class LayerInstance {
+class LayerInstance implements ldtk.rules.RuleSource implements ldtk.rules.RuleTarget {
 	var _project : Project;
 
 	public var def(get,never) : data.def.LayerDef;
@@ -46,14 +46,11 @@ class LayerInstance {
 	public var gridTiles : Map<Int, Array<GridTileInfos>> = []; // <coordId, tileinfos>
 	var overrideTilesetUid : Null<Int>;
 
-	/** < RuleUid, < coordId, { tiles } > > **/
-	public var autoTilesCache :
-		Null< Map<Int, // RuleUID
-			Map<Int, // CoordID
-				// WARNING: x/y don't contain layerDef.pxOffsetX/Y (to avoid the need of a global update when changing these values). They are added in the JSON though.
-				Array<{ x:Int, y:Int, flips:Int, srcX:Int, srcY:Int, tid:Int, a:Float }>
-			>
-		> > = null;
+	/** < RuleUid, < coordId, { tiles } > >. Tile x/y are relative to the layer (layerDef.pxOffsetX/Y are NOT included, they are exported separately as __pxTotalOffsetX/Y). **/
+	public var autoTilesCache : Null<ldtk.rules.AutoTile.AutoTileCache> = null;
+
+	var ruleEngine : Null<ldtk.rules.RuleEngine>;
+	var ruleTileset : Null<EditorRuleTileset>;
 
 	var areaIntGridUseCount : Map<Int, Map<Int,Int>> = new Map();
 	var layerIntGridUseCount : Map<Int,Int> = new Map();
@@ -78,7 +75,7 @@ class LayerInstance {
 		return Std.int(cx/intGridAreaSize) + Std.int(cy/intGridAreaSize) * 10000;
 	}
 
-	public inline function hasIntGridValueInArea(iv:Int, cx:Int, cy:Int) {
+	public function hasIntGridValueInArea(iv:Int, cx:Int, cy:Int) {
 		return areaIntGridUseCount.exists(iv) && areaIntGridUseCount.get(iv).get(areaCoordId(cx,cy)) > 0;
 	}
 
@@ -155,7 +152,7 @@ class LayerInstance {
 	}
 
 
-	public inline function containsIntGridValueOrGroup(iv:Int) {
+	public function containsIntGridValueOrGroup(iv:Int) {
 		return layerIntGridUseCount.exists(iv);
 	}
 
@@ -239,28 +236,9 @@ class LayerInstance {
 				csv;
 			},
 
-			autoLayerTiles: {
-				var arr = [];
-
-				if( autoTilesCache!=null ) {
-					var td = getTilesetDef();
-					def.iterateActiveRulesInDisplayOrder( this, (r)->{
-						if( autoTilesCache.exists( r.uid ) ) {
-							for( allTiles in autoTilesCache.get( r.uid ).keyValueIterator() )
-							for( tileInfos in allTiles.value )
-								arr.push({
-									px: [ tileInfos.x, tileInfos.y ],
-									src: [ tileInfos.srcX, tileInfos.srcY ],
-									f: tileInfos.flips,
-									t: tileInfos.tid,
-									d: [r.uid,allTiles.key],
-									a: r.alpha,
-								});
-							}
-					});
-				}
-				arr;
-			},
+			autoLayerTiles: autoTilesCache==null
+				? []
+				: ldtk.rules.RuleEngine.toJsonTiles( ldtk.rules.RuleEngine.flatten(autoTilesCache, getRulesInDisplayOrder()) ),
 
 			seed: seed,
 
@@ -303,33 +281,6 @@ class LayerInstance {
 
 		return json;
 	}
-
-	public inline function getRuleStampRenderInfos(rule:data.def.AutoLayerRuleDef, td:data.def.TilesetDef, tileIds:Array<Int>, flipBits:Int)
-	: Map<Int, { xOff:Int, yOff:Int }> {
-		if( td==null )
-			return null;
-
-		// Get stamp bounds in tileset
-		var top = 99999;
-		var left = 99999;
-		var right = 0;
-		var bottom = 0;
-		for(tid in tileIds) {
-			top = dn.M.imin( top, td.getTileCy(tid) );
-			bottom = dn.M.imax( bottom, td.getTileCy(tid) );
-			left = dn.M.imin( left, td.getTileCx(tid) );
-			right = dn.M.imax( right, td.getTileCx(tid) );
-		}
-
-		var out = new Map();
-		for( tid in tileIds )
-			out.set( tid, {
-				xOff: Std.int( ( td.getTileCx(tid)-left - rule.pivotX*(right-left) + def.tilePivotX ) * def.gridSize ) * (dn.M.hasBit(flipBits,0)?-1:1),
-				yOff: Std.int( ( td.getTileCy(tid)-top - rule.pivotY*(bottom-top) + def.tilePivotY ) * def.gridSize ) * (dn.M.hasBit(flipBits,1)?-1:1)
-			});
-		return out;
-	}
-
 
 	public function isEmpty() {
 		switch def.type {
@@ -638,7 +589,7 @@ class LayerInstance {
 
 	/** INT GRID *******************/
 
-	public inline function getIntGrid(cx:Int, cy:Int) : Int {
+	public function getIntGrid(cx:Int, cy:Int) : Int {
 		requireType(IntGrid);
 		return !isValid(cx,cy) || !intGrid.exists( coordId(cx,cy) ) ? 0 : intGrid.get( coordId(cx,cy) );
 	}
@@ -1034,40 +985,60 @@ class LayerInstance {
 			return !level.getLayerInstance(def.autoTilesKilledByOtherLayerUid).hasAnyGridTile(cx,cy);
 	}
 
-	inline function addRuleTilesAt(r:data.def.AutoLayerRuleDef, cx:Int, cy:Int, flips:Int) {
-		if( isAutoTileCellAllowed(cx,cy) ) {
-			var tileRectIds = r.getRandomTileRectIdsForCoord(seed, cx,cy, flips); // tile pick uses matching flips only, so enabling random flips doesn't change picked tiles
-			var renderFlips = flips ^ r.getRandomTileFlipsForCoord(seed, cx,cy, flips); // XOR: a tile matched flipped can be un-flipped by random
-			var td = getTilesetDef();
-			var stampInfos = r.tileMode==Single ? null : getRuleStampRenderInfos(r, td, tileRectIds, renderFlips);
 
-			if( !autoTilesCache.get(r.uid).exists( coordId(cx,cy) ) )
-				autoTilesCache.get(r.uid).set( coordId(cx,cy), [] );
+	/* RULE ENGINE PLUMBING (ldtk.rules) *****************************************************************/
 
-			autoTilesCache.get(r.uid).set( coordId(cx,cy), autoTilesCache.get(r.uid).get( coordId(cx,cy) ).concat(
-				tileRectIds.map( (tid)->{
-					return {
-						x: cx*def.gridSize + (stampInfos==null ? 0 : stampInfos.get(tid).xOff ) + r.getXOffsetForCoord(seed,cx,cy, renderFlips),
-						y: cy*def.gridSize + (stampInfos==null ? 0 : stampInfos.get(tid).yOff ) + r.getYOffsetForCoord(seed,cx,cy, renderFlips),
-						srcX: td.getTileSourceX(tid),
-						srcY: td.getTileSourceY(tid),
-						tid: tid,
-						flips: renderFlips,
-						a: r.alpha,
-					}
-				} )
-			));
-		}
+	// RuleSource & RuleTarget implementation
+	public function getWidth() return cWid;
+	public function getHeight() return cHei;
+	public function getGroupUidOfValue(v:Int) return def.getIntGridGroupUidFromValue(v);
+	public function getSeed() return seed;
+	public function getGridSize() return def.gridSize;
+	public function getTilePivotX() return def.tilePivotX;
+	public function getTilePivotY() return def.tilePivotY;
+	public function isCellKilled(cx:Int, cy:Int) return !isAutoTileCellAllowed(cx,cy);
+
+	/** The IntGrid layer instance read by the rules of this layer, or null if none **/
+	public function getRuleSourceLayer() : Null<LayerInstance> {
+		return def.type==IntGrid ? this : def.autoSourceLayerDefUid!=null ? level.getLayerInstance(def.autoSourceLayerDefUid) : null;
 	}
 
-	function clearAutoTilesCacheRect(r:data.def.AutoLayerRuleDef, cx,cy,wid,hei) {
-		if( !autoTilesCache.exists(r.uid) )
-			autoTilesCache.set( r.uid, [] );
+	/** The shared rule engine for this layer (reused, re-pointed to the current source and tileset) **/
+	function getRuleEngine(source:LayerInstance) : ldtk.rules.RuleEngine {
+		if( ruleTileset==null )
+			ruleTileset = new EditorRuleTileset();
+		ruleTileset.td = getTilesetDef();
 
-		var m = autoTilesCache.get(r.uid);
-		for(y in cy...cy+hei)
-		for(x in cx...cx+wid)
-			m.remove( coordId(x,y) );
+		if( ruleEngine==null )
+			ruleEngine = new ldtk.rules.RuleEngine(source, this, ruleTileset);
+		else {
+			ruleEngine.source = source;
+			ruleEngine.target = this;
+			ruleEngine.tileset = ruleTileset;
+		}
+		return ruleEngine;
+	}
+
+	/** Enum value ids of the level biome field, or null if the layer has no biome field **/
+	function getBiomeValues() : Null<Array<String>> {
+		if( def.biomeFieldUid==null )
+			return null;
+		var fi = level.getFieldInstanceByUid(def.biomeFieldUid, false);
+		if( fi==null )
+			return null;
+		return [ for(i in 0...fi.getArrayLength()) fi.getEnumValue(i) ];
+	}
+
+	public function getRulesInEvalOrder() : Array<ldtk.rules.RuleDef> {
+		var arr : Array<ldtk.rules.RuleDef> = [];
+		def.iterateActiveRulesInEvalOrder( this, r->arr.push(r) );
+		return arr;
+	}
+
+	public function getRulesInDisplayOrder() : Array<ldtk.rules.RuleDef> {
+		var arr : Array<ldtk.rules.RuleDef> = [];
+		def.iterateActiveRulesInDisplayOrder( this, r->arr.push(r) );
+		return arr;
 	}
 
 	function clearAutoTilesCacheByRule(r:data.def.AutoLayerRuleDef) {
@@ -1078,89 +1049,14 @@ class LayerInstance {
 		autoTilesCache = new Map();
 	}
 
-	/**
-		Check & apply given rule at coord.
-		WARNING: autoTiles clear method should always be called before that one!
-	**/
-	inline function applyRuleAt(sourceLi:LayerInstance, r:data.def.AutoLayerRuleDef, cx:Int, cy:Int) : Bool {
-		// Skip rule that requires specific IntGrid values absent from layer
-		if( !r.isRelevantInLayerAt(sourceLi,cx,cy) )
-			return false;
-
-		// Modulos
-		if( r.checker!=Vertical && (cy-r.yOffset) % r.yModulo!=0 )
-			return false;
-
-		if( r.checker==Vertical && ( cy + ( Std.int(cx/r.xModulo)%2 ) )%r.yModulo!=0 )
-			return false;
-
-		if( r.checker!=Horizontal && (cx-r.xOffset) % r.xModulo!=0 )
-			return false;
-
-		if( r.checker==Horizontal && ( cx + ( Std.int(cy/r.yModulo)%2 ) )%r.xModulo!=0 )
-			return false;
-
-		// Apply rule
-		var matched = false;
-		if( r.matches(this, sourceLi, cx,cy) ) {
-			addRuleTilesAt(r, cx,cy, 0);
-			matched = true;
-		}
-
-		if( ( !matched || !r.breakOnMatch ) && r.flipX && r.matches(this, sourceLi, cx,cy, -1) ) {
-			addRuleTilesAt(r, cx,cy, 1);
-			matched = true;
-		}
-
-		if( ( !matched || !r.breakOnMatch ) && r.flipY && r.matches(this, sourceLi, cx,cy, 1, -1) ) {
-			addRuleTilesAt(r, cx,cy, 2);
-			matched = true;
-		}
-
-		if( ( !matched || !r.breakOnMatch ) && r.flipX && r.flipY && r.matches(this, sourceLi, cx,cy, -1, -1) ) {
-			addRuleTilesAt(r, cx,cy, 3);
-			matched = true;
-		}
-
-		return matched;
-	}
-
 
 
 	public function isRuleGroupAppliedHere(rg:data.def.AutoLayerRuleGroupDef) {
-		if( rg.active && rg.requiredBiomeValues.length>0 ) {
-			var fi = level.getFieldInstanceByUid(def.biomeFieldUid, false);
-			if( fi!=null ) {
-				switch rg.biomeRequirementMode {
-					case 0: // OR
-						for(idx in 0...fi.getArrayLength())
-							for( bid in rg.requiredBiomeValues )
-								if( fi.getEnumValue(idx)==bid )
-									return true;
-						return false;
-
-					case 1: // AND
-						var matches = 0;
-						for( bid in rg.requiredBiomeValues ) {
-							for( arrayIdx in 0...fi.getArrayLength() )
-								if( fi.getEnumValue(arrayIdx)==bid ) {
-									matches++;
-									break;
-								}
-						}
-						return matches>=rg.requiredBiomeValues.length;
-
-					case _:
-						return false;
-				}
-			}
-		}
-
-		return isRuleGroupEnabled(rg);
+		return ldtk.rules.RuleGroups.isGroupApplied(rg, getBiomeValues(), optionalRules);
 	}
 
 	public inline function isRuleGroupEnabled(rg:data.def.AutoLayerRuleGroupDef) {
-		return rg.active && !rg.isOptional || optionalRules.exists(rg.uid);
+		return ldtk.rules.RuleGroups.isGroupEnabled(rg, optionalRules);
 	}
 
 	public function enableRuleGroupHere(rg:data.def.AutoLayerRuleGroupDef) {
@@ -1182,38 +1078,12 @@ class LayerInstance {
 	}
 
 	public function applyBreakOnMatchesArea(cx:Int, cy:Int, wid:Int, hei:Int) {
-		var left = M.imax(0,cx);
-		var top = M.imax(0,cy);
-		var right = M.imin(cWid-1, left + wid-1);
-		var bottom = M.imin(cHei-1, top + hei-1);
-
-		var coordLocks = new Map();
-
-		var td = getTilesetDef();
-		for( y in top...bottom+1 )
-		for( x in left...right+1 ) {
-			def.iterateActiveRulesInEvalOrder( this, (r)->{
-				if( autoTilesCache.exists(r.uid) && autoTilesCache.get(r.uid).exists(coordId(x,y)) ) {
-					if( coordLocks.exists( coordId(x,y) ) ) {
-						// Tiles below locks are discarded
-						autoTilesCache.get(r.uid).remove( coordId(x,y) );
-					}
-					else if( r.breakOnMatch ) {
-						// Break on match is ON
-						coordLocks.set( coordId(x,y), true ); // mark cell as locked
-					}
-					else if( !r.hasAnyPositionOffset() && r.alpha>=1 ) {
-						// Check for opaque tiles
-						for( t in autoTilesCache.get(r.uid).get( coordId(x,y) ) )
-							if( td.isTileOpaque(t.tid) ) {
-								coordLocks.set( coordId(x,y), true ); // mark cell as locked
-								break;
-							}
-					}
-				}
-
-			});
-		}
+		if( autoTilesCache==null )
+			return;
+		var source = getRuleSourceLayer();
+		if( source==null )
+			return;
+		getRuleEngine(source).applyBreakOnMatchesArea(autoTilesCache, getRulesInEvalOrder(), cx, cy, wid, hei);
 	}
 
 
@@ -1224,7 +1094,7 @@ class LayerInstance {
 			return;
 		}
 
-		var source = def.type==IntGrid ? this : def.autoSourceLayerDefUid!=null ? level.getLayerInstance(def.autoSourceLayerDefUid) : null;
+		var source = getRuleSourceLayer();
 		if( source==null ) {
 			clearAllAutoTilesCache();
 			return;
@@ -1235,23 +1105,8 @@ class LayerInstance {
 			return;
 		}
 
-		// Adjust bounds to also redraw nearby cells
-		var maxRadius = Std.int( Const.MAX_AUTO_PATTERN_SIZE*0.5 );
-		var left = dn.M.imax( 0, cx - maxRadius );
-		var right = dn.M.imin( cWid-1, cx + wid-1 + maxRadius );
-		var top = dn.M.imax( 0, cy - maxRadius );
-		var bottom = dn.M.imin( cHei-1, cy + hei-1 + maxRadius );
-
-		// Apply rules
-		def.iterateActiveRulesInEvalOrder( this, (r)->{
-			clearAutoTilesCacheRect(r, left,top, right-left+1, bottom-top+1);
-			for(x in left...right+1)
-			for(y in top...bottom+1)
-				applyRuleAt(source, r, x,y);
-		});
-
-		// Discard using break-on-match flag
-		applyBreakOnMatchesArea(left,top, right-left+1, bottom-top+1);
+		// Recompute the rect (expanded to nearby cells) and apply break-on-match on it
+		getRuleEngine(source).applyRulesInRect(autoTilesCache, getRulesInEvalOrder(), cx, cy, wid, hei);
 	}
 
 	/** Apply all rules to all cells **/
@@ -1274,27 +1129,30 @@ class LayerInstance {
 			return;
 		}
 
-		var source = def.type==IntGrid ? this : def.autoSourceLayerDefUid!=null ? level.getLayerInstance(def.autoSourceLayerDefUid) : null;
-		if( source==null || !r.isRelevantInLayer(source) )
+		var source = getRuleSourceLayer();
+		if( source==null || !r.isRelevantIn(source) )
 			return;
 
 		clearAutoTilesCacheByRule(r);
 
 		if( def.autoLayerRulesCanBeUsed() ) {
-			for( ay in 0...Std.int(cHei/intGridAreaSize)+1 )
-			for( ax in 0...Std.int(cWid/intGridAreaSize)+1 ) {
-				if( !r.isRelevantInLayerAt(source, ax*intGridAreaSize, ay*intGridAreaSize) )
-					continue;
-
-				for(cx in ax*intGridAreaSize...(ax+1)*intGridAreaSize)
-				for(cy in ay*intGridAreaSize...(ay+1)*intGridAreaSize)
-					if( isValid(cx,cy) )
-						applyRuleAt(source, r, cx,cy);
-			}
+			getRuleEngine(source).applyRuleEverywhere(autoTilesCache, r);
 
 			if( applyBreakOnMatch )
 				applyBreakOnMatchesEverywhere();
 		}
 	}
 
+}
+
+
+/** `ldtk.rules.RuleTileset` over an editor tileset definition **/
+private class EditorRuleTileset implements ldtk.rules.RuleTileset {
+	public var td : Null<data.def.TilesetDef>;
+	public function new() {}
+	public function getTileCx(tileId:Int) return td.getTileCx(tileId);
+	public function getTileCy(tileId:Int) return td.getTileCy(tileId);
+	public function getTileSourceX(tileId:Int) return td.getTileSourceX(tileId);
+	public function getTileSourceY(tileId:Int) return td.getTileSourceY(tileId);
+	public function isTileOpaque(tileId:Int) return td!=null && td.isTileOpaque(tileId);
 }
